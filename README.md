@@ -23,6 +23,8 @@
 
 - **Ten panel layouts** in a hardware skin — knobs, faders, LED keys — in **Light, Dark or Auto**
 - **Settings window** (gear, ⌘, or right-click the menu bar icon)
+- **Updates** — checks GitHub daily (optional), verifies each download against its checksum,
+  and can install automatically
 - Speaker level and a headphone trim, with mute on each
 - **Keyboard volume keys** (F10/F11/F12, Touch Bar) control the iD — only while it's the
   selected output, so built-in speakers and AirPods behave normally. Option+Shift for fine steps.

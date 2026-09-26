@@ -94,6 +94,8 @@ final class AppState: ObservableObject {
     private let hud = VolumeHUD()
     /// Opens the Settings window (set by the app delegate).
     var openSettings: (() -> Void)?
+    /// The Settings window's selected section.
+    @Published var settingsTab: SettingsView.Tab = .panel
 
     /// Set by the app delegate when the popover opens/closes.
     var panelOpen = false { didSet { updateMeterPolling() } }

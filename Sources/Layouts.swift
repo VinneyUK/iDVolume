@@ -7,6 +7,7 @@ import SwiftUI
 /// Header on every layout: device name, connection LED, settings gear.
 struct PanelHeader: View {
     @EnvironmentObject var state: AppState
+    @EnvironmentObject var updater: Updater
     var body: some View {
         HStack {
             Text(state.deviceName ?? "No iD interface")
@@ -15,12 +16,20 @@ struct PanelHeader: View {
             Spacer()
             LEDView(color: state.isConnected ? Skin.green : Skin.red)
                 .help(state.lastError ?? (state.isConnected ? "Connected" : "Not connected"))
-            Button { state.openSettings?() } label: {
+            Button {
+                if updater.availableRelease != nil { state.settingsTab = .updates }
+                state.openSettings?()
+            } label: {
                 Image(systemName: "gearshape").font(.system(size: 13)).foregroundStyle(Skin.silk)
                     .padding(4).contentShape(Rectangle())
+                    .overlay(alignment: .topTrailing) {
+                        if updater.availableRelease != nil {
+                            Circle().fill(Skin.amber).frame(width: 7, height: 7).offset(x: -1, y: 2)
+                        }
+                    }
             }
             .buttonStyle(.plain)
-            .help("Settings  ⌘,")
+            .help(updater.availableRelease.map { "Version \($0.version) is available — open Settings" } ?? "Settings  ⌘,")
             .accessibilityLabel("Settings")
         }
         .padding(.bottom, 12)

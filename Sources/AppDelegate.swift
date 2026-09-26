@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     private var state: AppState!
+    private let updater = Updater()
     private var statusItem: NSStatusItem!
     private let popover = NSPopover()
     private var scrollMonitor: Any?
@@ -36,7 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             barMeter.attach(to: button)
         }
 
-        let host = NSHostingController(rootView: PanelView().environmentObject(state))
+        let host = NSHostingController(rootView: PanelView().environmentObject(state).environmentObject(updater))
         host.sizingOptions = .preferredContentSize
         popover.contentViewController = host
         popover.behavior = .transient
@@ -89,7 +90,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     @objc private func openSettings() {
         popover.performClose(nil)
         if settingsWindow == nil {
-            let host = NSHostingController(rootView: SettingsView().environmentObject(state))
+            let host = NSHostingController(rootView: SettingsView().environmentObject(state).environmentObject(updater))
             let window = NSWindow(contentViewController: host)
             window.title = "iDVolume Settings"
             window.styleMask = [.titled, .closable]
@@ -107,6 +108,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self
         menu.addItem(settings)
+        let updates = NSMenuItem(title: updater.availableRelease.map { "Update to \($0.version)…" } ?? "Check for Updates…",
+                                 action: #selector(checkForUpdates), keyEquivalent: "")
+        updates.target = self
+        menu.addItem(updates)
         let reconnect = NSMenuItem(title: "Reconnect", action: #selector(reconnectAction), keyEquivalent: "")
         reconnect.target = self
         menu.addItem(reconnect)
@@ -118,6 +123,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     @objc private func reconnectAction() { state.reconnect() }
+
+    @objc private func checkForUpdates() {
+        state.settingsTab = .updates
+        openSettings()
+        if updater.availableRelease == nil { updater.check(userInitiated: true) }
+    }
 
     /// Light / Dark / Auto for the panel and the Settings window (nil = follow the system).
     private func applyAppearance() {

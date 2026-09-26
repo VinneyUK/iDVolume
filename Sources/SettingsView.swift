@@ -3,10 +3,11 @@ import SwiftUI
 /// The Settings window: set-and-forget options, grouped by what they configure.
 struct SettingsView: View {
     @EnvironmentObject var state: AppState
-    @State private var tab: Tab = .panel
+    @EnvironmentObject var updater: Updater
+    private var tab: Tab { state.settingsTab }
 
     enum Tab: String, CaseIterable, Identifiable {
-        case panel = "Panel", general = "General", interface = "Interface", menuBar = "Menu bar"
+        case panel = "Panel", general = "General", interface = "Interface", menuBar = "Menu bar", updates = "Updates"
         var id: String { rawValue }
         var icon: String {
             switch self {
@@ -14,6 +15,7 @@ struct SettingsView: View {
             case .general: return "keyboard"
             case .interface: return "slider.horizontal.3"
             case .menuBar: return "menubar.rectangle"
+            case .updates: return "arrow.down.circle"
             }
         }
     }
@@ -42,8 +44,14 @@ struct SettingsView: View {
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 2) {
             ForEach(Tab.allCases) { t in
-                Button { tab = t } label: {
-                    Label(t.rawValue, systemImage: t.icon)
+                Button { state.settingsTab = t } label: {
+                    HStack {
+                        Label(t.rawValue, systemImage: t.icon)
+                        Spacer()
+                        if t == .updates && updater.availableRelease != nil {
+                            Circle().fill(Skin.amber).frame(width: 7, height: 7)
+                        }
+                    }
                         .font(.system(size: 13))
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 10).padding(.vertical, 7)
@@ -68,6 +76,7 @@ struct SettingsView: View {
         case .general: generalTab
         case .interface: interfaceTab
         case .menuBar: menuBarTab
+        case .updates: updatesTab
         }
     }
 
@@ -156,6 +165,88 @@ struct SettingsView: View {
             row("Show level next to the icon", isOn: $state.showLevelInMenuBar)
             row("Level meter in the menu bar", hint: "Two small bars showing the speaker output", isOn: $state.menuBarMeter)
             Text("Right-click the menu bar icon for Settings and Quit.").font(.system(size: 12)).foregroundStyle(Skin.silkDim)
+        }
+    }
+
+    private var updatesTab: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            row("Automatically check for updates", hint: "Checks GitHub once a day", isOn: $updater.autoCheck)
+            row("Install updates automatically", hint: "Downloads, verifies and installs, then iDVolume restarts",
+                isOn: $updater.autoInstall)
+                .disabled(!updater.autoCheck)
+
+            HStack {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Last checked").font(.system(size: 13)).foregroundStyle(Skin.ink)
+                    TimelineView(.periodic(from: .now, by: 30)) { _ in
+                        Text(lastCheckedText).font(.system(size: 11)).foregroundStyle(Skin.silkDim)
+                    }
+                }
+                Spacer()
+                Button("Check Now") { updater.check(userInitiated: true) }
+                    .controlSize(.small)
+                    .disabled(updater.isBusy)
+            }
+
+            statusBox
+        }
+    }
+
+    private var lastCheckedText: String {
+        guard let d = updater.lastChecked else { return "Never" }
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .full
+        return f.localizedString(for: d, relativeTo: Date())
+    }
+
+    @ViewBuilder private var statusBox: some View {
+        let box = RoundedRectangle(cornerRadius: 8)
+        switch updater.status {
+        case .idle:
+            statusLine("You're on version \(updater.currentVersion).", icon: "checkmark.circle", tint: Skin.silkDim)
+        case .checking:
+            HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Checking…").font(.system(size: 12)) }
+        case .upToDate:
+            statusLine("You're up to date — version \(updater.currentVersion) is the latest.", icon: "checkmark.circle.fill", tint: Skin.green)
+        case .failed(let message):
+            statusLine(message, icon: "exclamationmark.triangle.fill", tint: .orange)
+        case .installing(let step):
+            HStack(spacing: 8) { ProgressView().controlSize(.small); Text(step).font(.system(size: 12)) }
+        case .available(let release):
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Image(systemName: "arrow.down.circle.fill").foregroundStyle(Skin.amber)
+                    Text("Version \(release.version) is available").font(.system(size: 13, weight: .semibold))
+                    Text("you have \(updater.currentVersion)").font(.system(size: 11)).foregroundStyle(Skin.silkDim)
+                }
+                if !release.notes.isEmpty {
+                    ScrollView {
+                        Text((try? AttributedString(markdown: release.notes,
+                              options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(release.notes))
+                            .font(.system(size: 12))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+                    }
+                    .frame(maxHeight: 90)
+                }
+                HStack {
+                    Button("Install & Restart") { updater.install(release) }.controlSize(.small).keyboardShortcut(.defaultAction)
+                    Button("Release Notes") { NSWorkspace.shared.open(release.page) }.controlSize(.small)
+                    Spacer()
+                    Button("Skip This Version") { updater.skip(release) }.controlSize(.small)
+                }
+                Text("After updating, macOS may ask you to allow Accessibility again for the volume keys.")
+                    .font(.system(size: 11)).foregroundStyle(Skin.silkDim)
+            }
+            .padding(12)
+            .background(box.fill(Skin.well))
+        }
+    }
+
+    private func statusLine(_ text: String, icon: String, tint: Color) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: icon).foregroundStyle(tint)
+            Text(text).font(.system(size: 12)).foregroundStyle(Skin.ink).fixedSize(horizontal: false, vertical: true)
         }
     }
 
