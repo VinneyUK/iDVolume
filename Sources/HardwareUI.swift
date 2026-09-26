@@ -67,6 +67,66 @@ func dBText(_ v: Double) -> String {
 
 private func clamp01(_ v: Double) -> Double { min(1, max(0, v)) }
 
+// MARK: - Scrolling
+
+/// Turns mouse-wheel / trackpad scrolling into whole 1 dB steps, like the hardware knob.
+/// One wheel notch = 1 step. Trackpad movement accumulates (12 pt per step), the momentum
+/// "coast" after lifting your fingers is ignored, and one event can move at most 2 steps —
+/// so a flick can't send the level to max.
+final class ScrollStepper {
+    private var accumulated = 0.0
+    private var lastTimestamp: TimeInterval = -1
+    private let pointsPerStep = 12.0
+
+    func steps(for event: NSEvent) -> Int {
+        guard event.timestamp != lastTimestamp else { return 0 }    // same event seen twice
+        lastTimestamp = event.timestamp
+        guard event.momentumPhase.isEmpty else { return 0 }          // ignore the coast
+        var delta = Double(event.scrollingDeltaY)
+        if event.isDirectionInvertedFromDevice { delta = -delta }    // up = louder, always
+        guard delta != 0 else { return 0 }
+        if !event.hasPreciseScrollingDeltas { return delta > 0 ? 1 : -1 }   // wheel notch
+        if event.phase == .began { accumulated = 0 }
+        accumulated += delta
+        let n = Int(accumulated / pointsPerStep)
+        accumulated -= Double(n) * pointsPerStep
+        return max(-2, min(2, n))
+    }
+}
+
+/// Transparent layer that only takes part in hit-testing for scroll events, so it receives the
+/// scroll wheel while clicks and drags still reach the control underneath.
+struct ScrollWheelCatcher: NSViewRepresentable {
+    let onSteps: (Int) -> Void
+
+    func makeNSView(context: Context) -> CatcherView {
+        let v = CatcherView()
+        v.onSteps = onSteps
+        return v
+    }
+
+    func updateNSView(_ view: CatcherView, context: Context) { view.onSteps = onSteps }
+
+    final class CatcherView: NSView {
+        var onSteps: ((Int) -> Void)?
+        private let stepper = ScrollStepper()
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            NSApp.currentEvent?.type == .scrollWheel ? super.hitTest(point) : nil
+        }
+        override func scrollWheel(with event: NSEvent) {
+            let n = stepper.steps(for: event)
+            if n != 0 { onSteps?(n) }
+        }
+    }
+}
+
+extension View {
+    /// Scroll over this view to step a level by 1 dB (1/64 of the range) per step.
+    func scrollSteps(_ value: Binding<Double>) -> some View {
+        overlay(ScrollWheelCatcher { n in value.wrappedValue = min(1, max(0, value.wrappedValue + Double(n) / 64)) })
+    }
+}
+
 // MARK: - Small pieces
 
 struct SilkText: View {
@@ -230,7 +290,8 @@ struct HWSegmented<T: Hashable>: View {
 
 // MARK: - Knob
 
-/// Metal knob. Drag up/down, or focus it and use the arrow keys.
+/// Metal knob. Drag up/down or scroll. (Not keyboard-focusable, so no focus ring on click;
+/// VoiceOver adjusts it through its accessibility action.)
 struct HWKnob: View {
     enum Ring { case arc, segments, ticks }
     @Binding var value: Double
@@ -251,14 +312,7 @@ struct HWKnob: View {
                     value = clamp01((dragStart ?? value) - g.translation.height / 200)
                 }
                 .onEnded { _ in dragStart = nil })
-            .focusable()
-            .onMoveCommand { dir in
-                switch dir {
-                case .up, .right: value = clamp01(value + 1.0 / 64)
-                case .down, .left: value = clamp01(value - 1.0 / 64)
-                @unknown default: break
-                }
-            }
+            .scrollSteps($value)
             .accessibilityElement()
             .accessibilityLabel(label)
             .accessibilityValue("\(Int((value * 100).rounded())) percent")
@@ -354,11 +408,7 @@ struct HWFader: View {
         .gesture(DragGesture(minimumDistance: 0).onChanged { g in
             value = clamp01(1 - (g.location.y - 12) / travel)
         })
-        .focusable()
-        .onMoveCommand { dir in
-            if dir == .up { value = clamp01(value + 1.0 / 64) }
-            if dir == .down { value = clamp01(value - 1.0 / 64) }
-        }
+        .scrollSteps($value)
         .accessibilityElement()
         .accessibilityLabel(label)
         .accessibilityValue("\(Int((value * 100).rounded())) percent")
@@ -403,11 +453,7 @@ struct HWSlider: View {
             })
         }
         .frame(height: h)
-        .focusable()
-        .onMoveCommand { dir in
-            if dir == .right { value = clamp01(value + 1.0 / 64) }
-            if dir == .left { value = clamp01(value - 1.0 / 64) }
-        }
+        .scrollSteps($value)
         .accessibilityElement()
         .accessibilityLabel(label)
         .accessibilityValue("\(Int((value * 100).rounded())) percent")

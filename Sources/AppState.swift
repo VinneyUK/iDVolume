@@ -335,14 +335,13 @@ final class AppState: ObservableObject {
         updateKeyTap()
     }
 
-    /// Scroll wheel / trackpad over the menu bar icon. Up = louder, whatever the scroll direction setting.
+    /// Scroll wheel / trackpad over the menu bar icon: whole 1 dB steps (see ScrollStepper).
+    private let iconScroll = ScrollStepper()
     func scroll(_ event: NSEvent) {
         guard isConnected else { return }
-        var delta = Double(event.scrollingDeltaY)
-        if event.isDirectionInvertedFromDevice { delta = -delta }
-        guard delta != 0 else { return }
-        let step = event.hasPreciseScrollingDeltas ? delta * 0.0035 : (delta > 0 ? 1.0 : -1.0) / 32
-        speakers = min(1, max(0, speakers + step))
+        let n = iconScroll.steps(for: event)
+        guard n != 0 else { return }
+        speakers = min(1, max(0, speakers + Double(n) / 64))
         showHUD()
     }
 

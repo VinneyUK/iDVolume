@@ -19,8 +19,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private let updater = Updater()
     private var statusItem: NSStatusItem!
     private let popover = NSPopover()
-    private var scrollMonitor: Any?
     private var iconObserver: AnyCancellable?
+    private var localScroll: Any?
+    private var globalScroll: Any?
     private var barLevels = (left: -120.0, right: -120.0)
     private let barMeter = MenuBarMeter()
     private var settingsWindow: NSWindow?
@@ -58,11 +59,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             self?.updateMeter()
         }
 
-        // Scroll over the menu bar icon to change the speaker level.
-        scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
-            guard let self, let button = self.statusItem.button, event.window === button.window else { return event }
-            self.state.scroll(event)
+        // Scroll over the menu bar icon to change the speaker level. macOS may deliver scrolls
+        // over the menu bar to this app or to another process, so watch both and decide by
+        // where the pointer is on screen rather than by which window got the event.
+        localScroll = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            guard let self, self.pointerIsOverIcon() else { return event }
+            self.handleScroll(event, source: "local")
             return nil
+        }
+        globalScroll = NSEvent.addGlobalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            guard let self, self.pointerIsOverIcon() else { return }
+            self.handleScroll(event, source: "global")
         }
     }
 
@@ -123,6 +130,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     @objc private func reconnectAction() { state.reconnect() }
+
+    private func pointerIsOverIcon() -> Bool {
+        guard let button = statusItem.button, let window = button.window else { return false }
+        let onScreen = window.convertToScreen(button.convert(button.bounds, to: nil))
+        return onScreen.insetBy(dx: -2, dy: -2).contains(NSEvent.mouseLocation)
+    }
+
+    private func handleScroll(_ event: NSEvent, source: String) {
+        NSLog("iDVolume scroll (%@): dy=%.2f precise=%d connected=%d", source, event.scrollingDeltaY,
+              event.hasPreciseScrollingDeltas ? 1 : 0, state.isConnected ? 1 : 0)
+        state.scroll(event)
+    }
 
     @objc private func checkForUpdates() {
         state.settingsTab = .updates
