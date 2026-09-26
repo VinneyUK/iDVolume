@@ -10,6 +10,12 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/VinneyUK/iDVolume/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/VinneyUK/iDVolume?label=version"></a>
+  <a href="https://github.com/VinneyUK/iDVolume/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/VinneyUK/iDVolume/total?label=downloads"></a>
+  <a href="https://hits.sh/github.com/VinneyUK/iDVolume/"><img alt="Visitors" src="https://hits.sh/github.com/VinneyUK/iDVolume.svg?label=visitors"></a>
+</p>
+
+<p align="center">
   <img src="docs/layouts.png" alt="The ten iDVolume panel layouts in the light (silver) finish">
 </p>
 <p align="center"><sub>Light</sub></p>
