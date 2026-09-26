@@ -8,6 +8,8 @@
 //   idvol info                     dump USB interfaces, endpoints and audio entities
 //   idvol probe                    try reading back every control we know about
 //   idvol watch [ms]               poll the readable known controls, print changes
+//   idvol meters [log]             live view (or CSV log to stdout) of of the mixer memory blocks Audient's app polls
+//                                  (probably meters); prints min/max per value on Ctrl-C
 //   idvol events                   live view of the iD's change queue (what the iD app polls)
 //   idvol phones-mute on|off       headphone mute
 //   idvol sniff                    listen to everything the iD sends on its HID interface,
@@ -24,6 +26,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <signal.h>
 #include <unistd.h>
 
 // UAC2 "CUR" (0x01) and UAC1 "GET_CUR" (0x81) — try both.
@@ -180,6 +183,75 @@ static int cmd_watch(int interval_ms) {
         }
         usleep(interval_ms * 1000);
     }
+}
+
+// ---------------------------------------------------------------- meters
+//
+// Audient's app constantly reads four memory blocks from the mixer unit (entity 0x3c)
+// with the UAC2 MEM request (bRequest 0x03), using exactly these offsets and lengths.
+// We copy those requests exactly — never other lengths — and show the values live.
+
+static const struct { uint16_t offset; uint16_t len; } kMeterBlocks[] = {{0, 32}, {1, 12}, {2, 16}, {3, 6}};
+#define N_BLOCKS 4
+static volatile sig_atomic_t g_stop = 0;
+static void on_sigint(int sig) { (void)sig; g_stop = 1; }
+
+static int cmd_meters(int log_mode) {
+    uint16_t mn[N_BLOCKS][16], mx[N_BLOCKS][16];
+    for (int b = 0; b < N_BLOCKS; b++)
+        for (int i = 0; i < 16; i++) { mn[b][i] = 0xffff; mx[b][i] = 0; }
+    signal(SIGINT, on_sigint);
+    double t0 = now_ms();
+    int samples = 0;
+    if (log_mode) {  // one CSV line per reading: time, then every value of every block
+        printf("t_ms");
+        for (int b = 0; b < N_BLOCKS; b++)
+            for (int ch = 0; ch < kMeterBlocks[b].len / 2; ch++) printf(",b%d_%d", b, ch + 1);
+        printf("\n");
+        while (!g_stop) {
+            printf("%.0f", now_ms() - t0);
+            for (int b = 0; b < N_BLOCKS; b++) {
+                uint8_t buf[32] = {0};
+                int n = aud_read(0x03, kMeterBlocks[b].offset, 0x3c, buf, kMeterBlocks[b].len, 200);
+                for (int i = 0; i + 1 < kMeterBlocks[b].len; i += 2)
+                    printf(",%d", n > i ? (buf[i] | (buf[i + 1] << 8)) : -1);
+            }
+            printf("\n");
+            fflush(stdout);
+            usleep(50 * 1000);
+        }
+        return 0;
+    }
+    while (!g_stop) {
+        printf("\033[H\033[J");  // redraw in place
+        printf("iD mixer memory blocks (entity 0x3c, MEM) — %.0fs, %d samples. Ctrl-C for summary.\n\n",
+               (now_ms() - t0) / 1000.0, samples);
+        for (int b = 0; b < N_BLOCKS; b++) {
+            uint8_t buf[32] = {0};
+            int n = aud_read(0x03, kMeterBlocks[b].offset, 0x3c, buf, kMeterBlocks[b].len, 200);
+            printf("  block %d (%2d bytes): ", b, kMeterBlocks[b].len);
+            if (n < 0) { printf("read failed (0x%08x)\n", (unsigned)n); continue; }
+            for (int i = 0; i + 1 < n; i += 2) {
+                uint16_t v = (uint16_t)(buf[i] | (buf[i + 1] << 8));
+                int ch = i / 2;
+                if (v < mn[b][ch]) mn[b][ch] = v;
+                if (v > mx[b][ch]) mx[b][ch] = v;
+                printf("%6u", v);
+            }
+            printf("\n");
+        }
+        samples++;
+        fflush(stdout);
+        usleep(100 * 1000);
+    }
+    printf("\n\nSummary — min..max per value (paste this):\n");
+    for (int b = 0; b < N_BLOCKS; b++) {
+        printf("  block %d:", b);
+        for (int ch = 0; ch < kMeterBlocks[b].len / 2; ch++)
+            printf("  [%d] %u..%u", ch + 1, mn[b][ch] == 0xffff ? 0 : mn[b][ch], mx[b][ch]);
+        printf("\n");
+    }
+    return 0;
 }
 
 // ---------------------------------------------------------------- events
@@ -464,7 +536,7 @@ int main(int argc, char **argv) {
     printf("Found %s (pid 0x%04x), control interface %d%s\n", aud_product_name(pid), pid, aud_control_interface(),
            aud_has_spare_interface() ? " (spare DFU/vendor)" : " (fallback 0)");
     if (argc < 2) {
-        printf("usage: idvol <0.0-1.0> [phones] | dim|mono|alt|polarity|mute on|off | phones-mute on|off | info | probe | watch [ms] | events | sniff | scan [entity …]\n");
+        printf("usage: idvol <0.0-1.0> [phones] | dim|mono|alt|polarity|mute on|off | phones-mute on|off | info | probe | watch [ms] | events | meters | sniff | scan [entity …]\n");
         return 0;
     }
 
@@ -472,6 +544,7 @@ int main(int argc, char **argv) {
     if (strcmp(argv[1], "probe") == 0) return cmd_probe();
     if (strcmp(argv[1], "sniff") == 0) return cmd_sniff();
     if (strcmp(argv[1], "events") == 0) return cmd_events();
+    if (strcmp(argv[1], "meters") == 0) return cmd_meters(argc > 2 && strcmp(argv[2], "log") == 0);
     if (strcmp(argv[1], "phones-mute") == 0) {
         int on = argc > 2 && (strcmp(argv[2], "on") == 0 || strcmp(argv[2], "1") == 0);
         int kr = aud_set_headphone_mute(on);

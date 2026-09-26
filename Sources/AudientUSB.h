@@ -45,6 +45,11 @@ int aud_read_headphone_mute(int *out);
 // control changed since the last read, 0 if nothing changed, <0 on error.
 // cn is 0-based here (channel N+1 in control terms).
 int aud_read_change_event(uint8_t *cs, uint8_t *cn, uint8_t *entity);
+// Peak meters (UAC2 MEM reads on mixer 0x3c, exactly as Audient's app does).
+// Linear peak, 65535 = 0 dBFS. inputs[16]: 1-2 mic/line, 3-10 other inputs, 11-16 playback
+// from the Mac (pairs 1/2, 3/4, 5/6). outputs[6]: 1-2 speakers, 3-4 line, 5-6 headphones.
+int aud_read_meters(uint16_t *inputs16, uint16_t *outputs6);
+int aud_read_output_meters(uint16_t *outputs6);   // outputs block only (one request)
 int aud_read_monitor_switch(int which, int *out);
 // Inverse of aud_raw_from_position; levels below the floor clamp to 0.
 double aud_position_from_raw(int16_t raw, double floor_db);

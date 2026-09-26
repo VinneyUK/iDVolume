@@ -1,28 +1,38 @@
 #!/bin/bash
 # Builds build/iDVolume.app and build/idvol (CLI test tool). Needs Xcode or the Command Line Tools.
+#   UNIVERSAL=1 ./build.sh          Apple Silicon + Intel in one app (used for releases)
+#   CODESIGN_IDENTITY=- ./build.sh  force ad-hoc signing
 set -euo pipefail
 cd "$(dirname "$0")"
 
-ARCH="$(uname -m)"
 MIN="13.0"
+if [ "${UNIVERSAL:-0}" = "1" ]; then ARCHS="arm64 x86_64"; else ARCHS="$(uname -m)"; fi
 APP="build/iDVolume.app"
 
 rm -rf build
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
-echo "→ C / IOKit layer"
-clang -O2 -Wall -arch "$ARCH" -mmacosx-version-min="$MIN" -c Sources/AudientUSB.c -o build/AudientUSB.o
+for ARCH in $ARCHS; do
+  echo "→ $ARCH: C / IOKit layer"
+  clang -O2 -Wall -arch "$ARCH" -mmacosx-version-min="$MIN" -c Sources/AudientUSB.c -o "build/AudientUSB-$ARCH.o"
 
-echo "→ idvol CLI"
-clang -O2 -Wall -arch "$ARCH" -mmacosx-version-min="$MIN" Sources/idvol_cli.c build/AudientUSB.o \
-  -framework IOKit -framework CoreFoundation -o build/idvol
+  echo "→ $ARCH: idvol CLI"
+  clang -O2 -Wall -arch "$ARCH" -mmacosx-version-min="$MIN" Sources/idvol_cli.c "build/AudientUSB-$ARCH.o" \
+    -framework IOKit -framework CoreFoundation -o "build/idvol-$ARCH"
 
-echo "→ Swift app"
-swiftc -O -parse-as-library -target "$ARCH-apple-macos$MIN" \
-  -import-objc-header Sources/AudientUSB.h \
-  Sources/*.swift build/AudientUSB.o \
-  -framework IOKit -framework CoreFoundation -framework CoreAudio \
-  -o "$APP/Contents/MacOS/iDVolume"
+  echo "→ $ARCH: Swift app"
+  swiftc -O -parse-as-library -target "$ARCH-apple-macos$MIN" \
+    -import-objc-header Sources/AudientUSB.h \
+    Sources/*.swift "build/AudientUSB-$ARCH.o" \
+    -framework IOKit -framework CoreFoundation -framework CoreAudio \
+    -o "build/iDVolume-$ARCH"
+done
+
+# Combine the architectures into single binaries.
+lipo -create build/iDVolume-* -output "$APP/Contents/MacOS/iDVolume"
+lipo -create build/idvol-* -output build/idvol
+rm -f build/iDVolume-* build/idvol-* build/AudientUSB-*.o
+echo "→ Architectures: $(lipo -archs "$APP/Contents/MacOS/iDVolume")"
 
 cp Info.plist "$APP/Contents/Info.plist"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"

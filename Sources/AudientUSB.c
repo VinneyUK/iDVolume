@@ -295,6 +295,25 @@ int aud_read_change_event(uint8_t *cs, uint8_t *cn, uint8_t *entity) {
     return 1;
 }
 
+int aud_read_meters(uint16_t *inputs16, uint16_t *outputs6) {
+    uint8_t b[32];
+    int n = aud_read(0x03, 0x0000, 0x3c, b, 32, 200);
+    if (n != 32) return n < 0 ? n : (int)kIOReturnUnderrun;
+    for (int i = 0; i < 16; i++) inputs16[i] = (uint16_t)(b[2 * i] | (b[2 * i + 1] << 8));
+    n = aud_read(0x03, 0x0001, 0x3c, b, 12, 200);
+    if (n != 12) return n < 0 ? n : (int)kIOReturnUnderrun;
+    for (int i = 0; i < 6; i++) outputs6[i] = (uint16_t)(b[2 * i] | (b[2 * i + 1] << 8));
+    return 0;
+}
+
+int aud_read_output_meters(uint16_t *outputs6) {
+    uint8_t b[12];
+    int n = aud_read(0x03, 0x0001, 0x3c, b, 12, 200);
+    if (n != 12) return n < 0 ? n : (int)kIOReturnUnderrun;
+    for (int i = 0; i < 6; i++) outputs6[i] = (uint16_t)(b[2 * i] | (b[2 * i + 1] << 8));
+    return 0;
+}
+
 int aud_config_descriptor(const uint8_t **out) {
     if (!g_dev && aud_connect() < 0) return -1;
     IOUSBConfigurationDescriptorPtr d = NULL;

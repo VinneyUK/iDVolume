@@ -23,6 +23,7 @@
 - **Knob sync** — turn or press the iD's knob and the app follows (with the on-screen display)
 - **Monitor switches**: Mute, Dim, Mono, Alt speakers — read back from the interface
 - **Restores your level** when the iD powers on (it starts up silent)
+- **Optional level meter in the menu bar** showing the speaker output
 - Talks to the interface directly over USB — audio keeps playing, nothing else to install
 - Launch at login
 
@@ -36,11 +37,60 @@
 
 ## Install
 
-There's no pre-built download yet, so you build it yourself (takes a few seconds).
+### Download (easiest)
+
+1. Download `iDVolume-x.y.zip` from the [latest release](https://github.com/VinneyUK/iDVolume/releases/latest)
+   and unzip it. It runs on Apple Silicon and Intel Macs.
+2. Drag **iDVolume.app** into **Applications**.
+3. Open it. macOS will say it **can't check the app for malicious software**, because it isn't
+   notarised by Apple (that needs a paid Apple developer account; this is a free hobby project).
+   To allow it, either:
+   - **System Settings → Privacy & Security**, scroll down to the message about iDVolume and click
+     **Open Anyway**, then confirm; or
+   - in Terminal: `xattr -dr com.apple.quarantine /Applications/iDVolume.app`, then open it normally.
+
+   You only need to do this once. If you'd rather not trust a downloaded app, build it yourself
+   from the source below — it's the same code — or notarise it yourself (next section).
+
+The `.sha256` file next to each download lets you check the zip wasn't altered:
+`shasum -a 256 -c iDVolume-x.y.zip.sha256`
+
+### Notarise it yourself (optional)
+
+If you have a paid [Apple Developer Program](https://developer.apple.com/programs/) membership,
+you can sign the download with your own **Developer ID** and have Apple notarise it. macOS then
+opens it with no warnings, and you've verified the build yourself.
+
+You need Xcode (or the Command Line Tools), your **Developer ID Application** certificate in
+Keychain, and an [app-specific password](https://support.apple.com/102654) for your Apple ID.
+
+```sh
+# 1. Find your signing identity — looks like "Developer ID Application: Your Name (TEAMID)"
+security find-identity -v -p codesigning
+
+# 2. Re-sign with your identity and the hardened runtime (required for notarisation)
+codesign --force --deep --options runtime --timestamp \
+  --sign "Developer ID Application: Your Name (TEAMID)" iDVolume.app
+
+# 3. Zip it and send it to Apple (takes a few minutes)
+ditto -c -k --keepParent iDVolume.app iDVolume-notarise.zip
+xcrun notarytool submit iDVolume-notarise.zip --wait \
+  --apple-id you@example.com --team-id TEAMID --password "app-specific-password"
+
+# 4. Attach Apple's approval to the app, then check it
+xcrun stapler staple iDVolume.app
+spctl --assess --verbose iDVolume.app      # should say: accepted, source=Notarized Developer ID
+```
+
+Then move it to Applications and open it as normal. If `notarytool` reports **Invalid**, run
+`xcrun notarytool log <submission-id> --apple-id … --team-id … --password …` to see why.
+
+### Build from source
+
 You need Xcode or the Command Line Tools (`xcode-select --install`).
 
 ```sh
-git clone https://github.com/YOUR-USERNAME/iDVolume.git
+git clone https://github.com/VinneyUK/iDVolume.git
 cd iDVolume
 ./build.sh
 cp -R build/iDVolume.app /Applications/
@@ -97,6 +147,7 @@ The iD's mixer is controlled with USB Audio class `CUR` requests — `SET` to ch
 | Speaker level | `0x36` | CS `0x12`, ch 0 — 1/256 dB, knob steps are 1 dB |
 | Speaker mute / Dim / Mono / Alt | `0x36` | CS `0x04` / `0x05` / `0x00` / `0x0c` |
 | Headphone trim / mute (iD14 MKII) | `0x0a` | CS `0x02` / `0x01`, ch 5 and 6 |
+| Peak meters | `0x3c` | MEM request (`0x03`): offset 0 = 16 inputs (32 bytes), offset 1 = 6 outputs (12 bytes); linear, 65535 = 0 dBFS |
 | Change queue | `0x3e` | CS `0x06`, 4 bytes: `CS, ch-1, 00, entity`, or `ff … ff` when empty |
 
 Headphone channels and the change queue were found by capturing Audient's own app on Windows. iDVolume sends them
@@ -108,6 +159,8 @@ interfaces and playback isn't interrupted. The volume keys are captured with a `
 The USB protocol comes from [MixiD](https://github.com/TheOnlyJoey/MixiD) by
 [@TheOnlyJoey](https://github.com/TheOnlyJoey) — an unofficial Linux control panel for the
 iD series. Thank you!
+
+See the [announcement on the MixiD issue tracker](https://github.com/TheOnlyJoey/MixiD/issues/29).
 
 ## Disclaimer
 

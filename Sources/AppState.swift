@@ -8,11 +8,22 @@ final class AppState: ObservableObject {
         static let speakers = "speakers", headphones = "headphones"
         static let keys = "volumeKeys", onlyAudient = "keysOnlyWhenAudient", osd = "osdEnabled"
         static let style = "menuBarStyle", showLevel = "showLevelInMenuBar", restore = "restoreOnPowerUp"
+        static let barMeter = "menuBarMeter"
     }
     private let defaults = UserDefaults.standard
     private let writer = USBWriter()
     private let keyTap = MediaKeyTap()
     private let hud = VolumeHUD()
+    /// Menu bar meter feed: speaker L/R in dBFS.
+    var onBarMeter: ((Double, Double) -> Void)?
+    private static let silence = -120.0
+    private var barLeft = AppState.silence
+    private var barRight = AppState.silence
+
+    /// Meter value → dBFS. The iD reports linear peak where 65535 = 0 dBFS.
+    private static func dB(_ raw: UInt16) -> Double {
+        raw == 0 ? silence : 20 * log10(Double(raw) / 65535)
+    }
     private var timer: Timer?
 
     // Knob sync bookkeeping
@@ -82,6 +93,12 @@ final class AppState: ObservableObject {
     @Published var showLevelInMenuBar: Bool {
         didSet { defaults.set(showLevelInMenuBar, forKey: K.showLevel) }
     }
+    @Published var menuBarMeter: Bool {
+        didSet {
+            defaults.set(menuBarMeter, forKey: K.barMeter)
+            updateMeterPolling()
+        }
+    }
     @Published var launchAtLogin: Bool {
         didSet {
             let enabled = SMAppService.mainApp.status == .enabled
@@ -104,10 +121,12 @@ final class AppState: ObservableObject {
         restoreOnPowerUp = defaults.object(forKey: K.restore) as? Bool ?? true
         menuBarStyle = MenuBarStyle(rawValue: defaults.string(forKey: K.style) ?? "") ?? .knob
         showLevelInMenuBar = defaults.bool(forKey: K.showLevel)
+        menuBarMeter = defaults.bool(forKey: K.barMeter)
         launchAtLogin = SMAppService.mainApp.status == .enabled
 
         writer.onResult = { [weak self] status, pid in self?.handle(status: status, pid: pid) }
         writer.onSnapshot = { [weak self] snap in self?.applyFromDevice(snap) }
+        writer.onMeters = { [weak self] outs in self?.handleMeters(outs) }
 
         keyTap.handler = { [weak self] key, down, flags in
             guard let self else { return false }
@@ -130,6 +149,7 @@ final class AppState: ObservableObject {
         refresh()
         updateKeyTap()
         writer.startPolling()
+        updateMeterPolling()
         timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in self?.tick() }
     }
 
@@ -263,6 +283,21 @@ final class AppState: ObservableObject {
         lastError = status == 0 ? nil : String(format: "USB request failed (0x%08X)", UInt32(bitPattern: status))
     }
 
+    private func updateMeterPolling() {
+        writer.setMetering(menuBarMeter)
+        if !menuBarMeter {
+            barLeft = Self.silence
+            barRight = Self.silence
+        }
+    }
+
+    private func handleMeters(_ outs: [UInt16]) {
+        guard menuBarMeter, outs.count >= 2 else { return }
+        barLeft = max(Self.dB(outs[0]), max(Self.silence, barLeft - 1.3))    // smooth fall
+        barRight = max(Self.dB(outs[1]), max(Self.silence, barRight - 1.3))
+        onBarMeter?(barLeft, barRight)
+    }
+
     private func updateKeyTap() {
         accessibilityGranted = AXIsProcessTrusted()
         if volumeKeysEnabled && accessibilityGranted { _ = keyTap.start() } else { keyTap.stop() }
@@ -298,6 +333,32 @@ final class USBWriter: @unchecked Sendable {
     private var pollFailures = 0
     var onResult: ((Int32, Int32) -> Void)?
     var onSnapshot: ((DeviceSnapshot) -> Void)?
+    var onMeters: (([UInt16]) -> Void)?
+    private var meterTimer: DispatchSourceTimer?
+
+    /// Read the output meters 20×/s while the menu bar meter is on.
+    func setMetering(_ on: Bool) {
+        queue.async { [weak self] in
+            guard let self else { return }
+            if on, self.meterTimer == nil {
+                let t = DispatchSource.makeTimerSource(queue: self.queue)
+                t.schedule(deadline: .now(), repeating: .milliseconds(50))
+                t.setEventHandler { [weak self] in self?.readMeters() }
+                t.resume()
+                self.meterTimer = t
+            } else if !on, let t = self.meterTimer {
+                t.cancel()
+                self.meterTimer = nil
+            }
+        }
+    }
+
+    private func readMeters() {
+        guard aud_current_pid() >= 0, pending.isEmpty, !scheduled else { return }
+        var outs = [UInt16](repeating: 0, count: 6)
+        guard aud_read_output_meters(&outs) == 0 else { return }
+        DispatchQueue.main.async { self.onMeters?(outs) }
+    }
 
     func send(_ target: USBTarget, value: Int16) {
         queue.async {
@@ -316,42 +377,85 @@ final class USBWriter: @unchecked Sendable {
         queue.async { let pid = aud_connect(); DispatchQueue.main.async { done(pid) } }
     }
 
-    /// Read the level and switches ~7 times a second so the app follows the hardware.
+    /// Watch the iD's change queue ~25×/s and only read a control when it reports a change —
+    /// the same approach Audient's own app uses. A full read every 2 s is the safety net.
     func startPolling() {
         let t = DispatchSource.makeTimerSource(queue: queue)
-        t.schedule(deadline: .now() + .milliseconds(400), repeating: .milliseconds(150))
+        t.schedule(deadline: .now() + .milliseconds(400), repeating: .milliseconds(40))
         t.setEventHandler { [weak self] in self?.poll() }
         t.resume()
         pollTimer = t
     }
 
+    private var lastFullRead = Date.distantPast
+
     private func poll() {
         guard aud_current_pid() >= 0, pending.isEmpty, !scheduled else { return }
-        var snap = DeviceSnapshot()
-        var raw: Int16 = 0
-        if aud_read_speaker_raw(&raw) == 0 {
-            snap.speakerRaw = raw
-            pollFailures = 0
-        } else {
-            pollFailures += 1
-            if pollFailures >= 5 {  // unplugged, powered off, or not answering
-                pollFailures = 0
-                let pid = aud_probe()
-                DispatchQueue.main.async { self.onResult?(0, pid) }
-            }
+        if Date().timeIntervalSince(lastFullRead) > 2.0 {
+            fullRead()
             return
         }
-        func readSwitch(_ which: Int32) -> Bool? {
-            var v: Int32 = 0
-            return aud_read_monitor_switch(which, &v) == 0 ? v != 0 : nil
+
+        // Drain the queue. Each entry names a control (entity << 8 | selector) that changed.
+        var changed = Set<Int>()
+        for _ in 0..<16 {
+            var cs: UInt8 = 0, cn: UInt8 = 0, entity: UInt8 = 0
+            let r = aud_read_change_event(&cs, &cn, &entity)
+            if r == 1 { changed.insert(Int(entity) << 8 | Int(cs)); continue }
+            if r < 0 { noteFailure(); return }
+            break
         }
+        pollFailures = 0
+        guard !changed.isEmpty else { return }
+
+        var snap = DeviceSnapshot()
+        if changed.contains(0x3612) {
+            var raw: Int16 = 0
+            if aud_read_speaker_raw(&raw) == 0 { snap.speakerRaw = raw }
+        }
+        if changed.contains(0x3604) { snap.mute = readSwitch(AUD_SW_MUTE) }
+        if changed.contains(0x3605) { snap.dim = readSwitch(AUD_SW_DIM) }
+        if changed.contains(0x3600) { snap.mono = readSwitch(AUD_SW_MONO) }
+        if changed.contains(0x360c) { snap.alt = readSwitch(AUD_SW_ALT) }
+        if changed.contains(0x0a01) { snap.phonesMute = readPhonesMute() }
+        // Anything we don't recognise: pull a full read forward.
+        let known: Set<Int> = [0x3612, 0x3604, 0x3605, 0x3600, 0x360c, 0x0a01, 0x0a02]
+        if !changed.isSubset(of: known) { lastFullRead = .distantPast }
+        DispatchQueue.main.async { self.onSnapshot?(snap) }
+    }
+
+    private func fullRead() {
+        lastFullRead = Date()
+        var snap = DeviceSnapshot()
+        var raw: Int16 = 0
+        guard aud_read_speaker_raw(&raw) == 0 else { noteFailure(); return }
+        pollFailures = 0
+        snap.speakerRaw = raw
         snap.mute = readSwitch(AUD_SW_MUTE)
-        var hp: Int32 = 0
-        snap.phonesMute = aud_read_headphone_mute(&hp) == 0 ? hp != 0 : nil
+        snap.phonesMute = readPhonesMute()
         snap.dim = readSwitch(AUD_SW_DIM)
         snap.mono = readSwitch(AUD_SW_MONO)
         snap.alt = readSwitch(AUD_SW_ALT)
         DispatchQueue.main.async { self.onSnapshot?(snap) }
+    }
+
+    private func readSwitch(_ which: Int32) -> Bool? {
+        var v: Int32 = 0
+        return aud_read_monitor_switch(which, &v) == 0 ? v != 0 : nil
+    }
+
+    private func readPhonesMute() -> Bool? {
+        var v: Int32 = 0
+        return aud_read_headphone_mute(&v) == 0 ? v != 0 : nil
+    }
+
+    private func noteFailure() {
+        pollFailures += 1
+        if pollFailures >= 5 {  // unplugged, powered off, or not answering
+            pollFailures = 0
+            let pid = aud_probe()
+            DispatchQueue.main.async { self.onResult?(0, pid) }
+        }
     }
 
     private func flush() {

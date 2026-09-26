@@ -81,4 +81,16 @@ enum MenuBarIcon {
         image.accessibilityDescription = "iD volume"
         return image
     }
+
+    /// The icon with empty space on its right for the meter bars (drawn separately as layers).
+    /// Built only when the icon changes — never per meter update.
+    static func padded(_ base: NSImage, extra: CGFloat) -> NSImage {
+        let size = NSSize(width: ceil(base.size.width) + extra, height: base.size.height)
+        let image = NSImage(size: size, flipped: false) { _ in
+            base.draw(in: NSRect(origin: .zero, size: base.size))
+            return true
+        }
+        image.isTemplate = true
+        return image
+    }
 }

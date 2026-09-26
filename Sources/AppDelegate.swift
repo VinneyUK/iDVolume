@@ -20,6 +20,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let popover = NSPopover()
     private var scrollMonitor: Any?
     private var iconObserver: AnyCancellable?
+    private var barLevels = (left: -120.0, right: -120.0)
+    private let barMeter = MenuBarMeter()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         state = AppState()
@@ -29,6 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.target = self
             button.action = #selector(togglePopover(_:))
             button.imagePosition = .imageOnly
+            barMeter.attach(to: button)
         }
 
         let host = NSHostingController(rootView: PanelView().environmentObject(state))
@@ -40,6 +43,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateIcon()
         iconObserver = state.objectWillChange.sink { [weak self] _ in
             DispatchQueue.main.async { self?.updateIcon() }
+        }
+        state.onBarMeter = { [weak self] left, right in
+            self?.barLevels = (left, right)
+            self?.updateMeter()
         }
 
         // Scroll over the menu bar icon to change the speaker level.
@@ -64,11 +71,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func updateIcon() {
         guard let button = statusItem.button else { return }
+        var image: NSImage
         switch state.menuBarStyle {
-        case .speaker: button.image = MenuBarIcon.speaker(symbol: state.speakerSymbol)
-        case .monitor: button.image = MenuBarIcon.monitor(muted: state.muted)
-        case .knob: button.image = MenuBarIcon.knob(level: state.speakers, muted: state.muted)
+        case .speaker: image = MenuBarIcon.speaker(symbol: state.speakerSymbol)
+        case .monitor: image = MenuBarIcon.monitor(muted: state.muted)
+        case .knob: image = MenuBarIcon.knob(level: state.speakers, muted: state.muted)
         }
+        let showMeter = state.menuBarMeter && state.isConnected
+        if showMeter { image = MenuBarIcon.padded(image, extra: MenuBarMeter.width) }
+        button.image = image
         button.appearsDisabled = !state.isConnected
 
         if state.showLevelInMenuBar && state.isConnected {
@@ -80,5 +91,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.imagePosition = .imageOnly
         }
         button.toolTip = state.tooltip
+        updateMeter()
+    }
+
+    private func updateMeter() {
+        guard let button = statusItem.button else { return }
+        guard state.menuBarMeter && state.isConnected else { barMeter.hide(); return }
+        barMeter.update(on: button, left: barLevels.left, right: barLevels.right)
     }
 }

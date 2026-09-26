@@ -59,6 +59,7 @@ struct PanelView: View {
                     .frame(width: 108)
                 }
                 SettingRow(title: "Show level in menu bar", isOn: $state.showLevelInMenuBar)
+                SettingRow(title: "Meter in menu bar", isOn: $state.menuBarMeter)
                 SettingRow(title: "Launch at login", isOn: $state.launchAtLogin)
             }
 
