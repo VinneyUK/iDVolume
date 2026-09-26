@@ -10,11 +10,14 @@
 </p>
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/layouts-dark.png">
-    <img src="docs/layouts.png" alt="The ten iDVolume panel layouts">
-  </picture>
+  <img src="docs/layouts.png" alt="The ten iDVolume panel layouts in the light (silver) finish">
 </p>
+<p align="center"><sub>Light</sub></p>
+
+<p align="center">
+  <img src="docs/layouts-dark.png" alt="The ten iDVolume panel layouts in the dark (graphite) finish">
+</p>
+<p align="center"><sub>Dark</sub></p>
 
 ## Features
 
