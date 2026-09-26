@@ -24,7 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         state = AppState()
 
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
             button.target = self
             button.action = #selector(togglePopover(_:))
@@ -63,11 +63,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func updateIcon() {
-        let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .regular)
-        let image = NSImage(systemSymbolName: state.menuBarSymbol, accessibilityDescription: "iD volume")?
-            .withSymbolConfiguration(config)
-        image?.isTemplate = true
-        statusItem.button?.image = image
-        statusItem.button?.toolTip = state.tooltip
+        guard let button = statusItem.button else { return }
+        switch state.menuBarStyle {
+        case .speaker: button.image = MenuBarIcon.speaker(symbol: state.speakerSymbol)
+        case .monitor: button.image = MenuBarIcon.monitor(muted: state.muted)
+        case .knob: button.image = MenuBarIcon.knob(level: state.speakers, muted: state.muted)
+        }
+        button.appearsDisabled = !state.isConnected
+
+        if state.showLevelInMenuBar && state.isConnected {
+            button.font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
+            button.title = state.muted ? " Muted" : " \(Int((state.speakers * 100).rounded()))%"
+            button.imagePosition = .imageLeading
+        } else {
+            button.title = ""
+            button.imagePosition = .imageOnly
+        }
+        button.toolTip = state.tooltip
     }
 }

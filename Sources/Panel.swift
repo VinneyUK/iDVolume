@@ -41,6 +41,20 @@ struct PanelView: View {
                     NoticeRow(message: problem.message, action: problem.action) { state.fixKeyProblem() }
                 }
                 SettingRow(title: "On-screen display", isOn: $state.osdEnabled)
+                HStack {
+                    Text("Menu bar icon").font(.system(size: 13))
+                    Spacer(minLength: 12)
+                    Picker("", selection: $state.menuBarStyle) {
+                        Image(systemName: "speaker.wave.2.fill").tag(MenuBarStyle.speaker)
+                        Image(systemName: "hifispeaker.fill").tag(MenuBarStyle.monitor)
+                        Image(nsImage: MenuBarIcon.knob(level: 0.65, muted: false)).tag(MenuBarStyle.knob)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .frame(width: 108)
+                }
+                SettingRow(title: "Show level in menu bar", isOn: $state.showLevelInMenuBar)
                 SettingRow(title: "Launch at login", isOn: $state.launchAtLogin)
             }
 

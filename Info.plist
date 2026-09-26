@@ -4,7 +4,7 @@
 <dict>
     <key>CFBundleName</key><string>iDVolume</string>
     <key>CFBundleDisplayName</key><string>iDVolume</string>
-    <key>CFBundleIdentifier</key><string>com.ant.idvolume</string>
+    <key>CFBundleIdentifier</key><string>com.vinneyuk.idvolume</string>
     <key>CFBundleExecutable</key><string>iDVolume</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundlePackageType</key><string>APPL</string>

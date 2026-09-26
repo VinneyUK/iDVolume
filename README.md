@@ -38,7 +38,7 @@ There's no pre-built download yet, so you build it yourself (takes a few seconds
 You need Xcode or the Command Line Tools (`xcode-select --install`).
 
 ```sh
-git clone https://github.com/VinneyUK/iDVolume.git
+git clone https://github.com/YOUR-USERNAME/iDVolume.git
 cd iDVolume
 ./build.sh
 cp -R build/iDVolume.app /Applications/
@@ -67,7 +67,7 @@ permission across rebuilds. Without one it signs ad-hoc and macOS forgets the pe
 build — reset it with:
 
 ```sh
-tccutil reset Accessibility com.ant.idvolume
+tccutil reset Accessibility com.vinneyuk.idvolume
 ```
 
 ## Known limitations
@@ -90,8 +90,6 @@ interfaces and playback isn't interrupted. The volume keys are captured with a `
 The USB protocol comes from [MixiD](https://github.com/TheOnlyJoey/MixiD) by
 [@TheOnlyJoey](https://github.com/TheOnlyJoey) — an unofficial Linux control panel for the
 iD series. Thank you!
-
-See the [announcement on the MixiD issue tracker](https://github.com/TheOnlyJoey/MixiD/issues/29).
 
 ## Disclaimer
 

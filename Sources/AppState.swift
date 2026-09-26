@@ -8,6 +8,7 @@ final class AppState: ObservableObject {
         static let speakers = "speakers", headphones = "headphones"
         static let keys = "volumeKeys", onlyAudient = "keysOnlyWhenAudient", osd = "osdEnabled"
         static let dim = "dim", mono = "mono", alt = "alt"
+        static let style = "menuBarStyle", showLevel = "showLevelInMenuBar"
     }
     private let defaults = UserDefaults.standard
     private let writer = USBWriter()
@@ -66,6 +67,12 @@ final class AppState: ObservableObject {
             if osdEnabled { showHUD() }  // quick preview
         }
     }
+    @Published var menuBarStyle: MenuBarStyle {
+        didSet { defaults.set(menuBarStyle.rawValue, forKey: K.style) }
+    }
+    @Published var showLevelInMenuBar: Bool {
+        didSet { defaults.set(showLevelInMenuBar, forKey: K.showLevel) }
+    }
     @Published var launchAtLogin: Bool {
         didSet {
             let enabled = SMAppService.mainApp.status == .enabled
@@ -88,6 +95,8 @@ final class AppState: ObservableObject {
         volumeKeysEnabled = defaults.object(forKey: K.keys) as? Bool ?? true
         keysOnlyWhenAudient = defaults.object(forKey: K.onlyAudient) as? Bool ?? true
         osdEnabled = defaults.object(forKey: K.osd) as? Bool ?? true
+        menuBarStyle = MenuBarStyle(rawValue: defaults.string(forKey: K.style) ?? "") ?? .knob
+        showLevelInMenuBar = defaults.bool(forKey: K.showLevel)
         launchAtLogin = SMAppService.mainApp.status == .enabled
 
         writer.onResult = { [weak self] status, pid in self?.handle(status: status, pid: pid) }
@@ -124,10 +133,6 @@ final class AppState: ObservableObject {
         if speakers < 0.34 { return "speaker.wave.1.fill" }
         if speakers < 0.67 { return "speaker.wave.2.fill" }
         return "speaker.wave.3.fill"
-    }
-
-    var menuBarSymbol: String {
-        isConnected ? speakerSymbol : "speaker.badge.exclamationmark.fill"
     }
 
     var tooltip: String {
