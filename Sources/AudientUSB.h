@@ -17,6 +17,14 @@ int aud_current_pid(void);
 int aud_control_interface(void);
 // Force the interface number used in wIndex (-1 = automatic: the spare DFU interface).
 void aud_set_interface_override(int iface);
+
+// Compatibility ("safe") mode applies automatically to models other than the iD14 MKII:
+// every command goes to the spare interface (as MixiD does) and the app reads nothing back.
+// aud_set_allow_untested(1) lifts it ("Use full features anyway").
+void aud_set_allow_untested(int on);
+int aud_safe_mode(void);   // 1 if the connected model is in compatibility mode
+// Models whose read-back, change queue and interface-0 behaviour have been verified.
+int aud_model_fully_supported(int pid);
 int aud_has_spare_interface(void);
 const char *aud_product_name(int pid);
 const char *aud_last_path(void);

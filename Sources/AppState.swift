@@ -87,6 +87,7 @@ final class AppState: ObservableObject {
         static let style = "menuBarStyle", showLevel = "showLevelInMenuBar", restore = "restoreOnPowerUp"
         static let barMeter = "menuBarMeter", idFollows = "idLedFollows"
         static let layout = "panelLayout", knobTarget = "knobTarget", appearance = "appearance"
+        static let fullFeatures = "fullFeaturesOnUntestedModels"
     }
     private let defaults = UserDefaults.standard
     private let writer = USBWriter()
@@ -131,6 +132,17 @@ final class AppState: ObservableObject {
 
     // MARK: Device status
     @Published var deviceName: String?
+    @Published private(set) var devicePID: Int32?
+    /// Allow read-back features on models they haven't been verified on (off by default).
+    @Published var fullFeaturesOnUntested: Bool {
+        didSet { defaults.set(fullFeaturesOnUntested, forKey: K.fullFeatures); applySafeMode() }
+    }
+    /// True when the connected model hasn't been verified: commands only, nothing is read back.
+    var safeMode: Bool {
+        guard let pid = devicePID else { return false }
+        return aud_model_fully_supported(pid) == 0 && !fullFeaturesOnUntested
+    }
+    var modelIsVerified: Bool { devicePID.map { aud_model_fully_supported($0) != 0 } ?? true }
     @Published var lastError: String?
     @Published var accessibilityGranted = AXIsProcessTrusted()
     @Published var tapRunning = false
@@ -261,6 +273,7 @@ final class AppState: ObservableObject {
         panelLayout = PanelLayout(rawValue: defaults.string(forKey: K.layout) ?? "") ?? .consoleStrip
         knobTarget = KnobTarget(rawValue: defaults.string(forKey: K.knobTarget) ?? "") ?? .speakers
         appearance = AppAppearance(rawValue: defaults.string(forKey: K.appearance) ?? "") ?? .light
+        fullFeaturesOnUntested = defaults.bool(forKey: K.fullFeatures)
         launchAtLogin = SMAppService.mainApp.status == .enabled
 
         writer.onResult = { [weak self] status, pid in self?.handle(status: status, pid: pid) }
@@ -286,6 +299,7 @@ final class AppState: ObservableObject {
 
         refresh()
         updateKeyTap()
+        writer.setAllowUntested(fullFeaturesOnUntested)
         writer.startPolling()
         updateMeterPolling()
         timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in self?.tick() }
@@ -414,7 +428,7 @@ final class AppState: ObservableObject {
     }
 
     private func followLED(_ f: IDButtonFunction, on: Bool) {
-        guard idLedFollows, isConnected else { return }
+        guard idLedFollows, isConnected, !safeMode else { return }
         if on {
             guard f != (temporaryIDButton ?? idButton) else { return }
             temporaryIDButton = f
@@ -450,12 +464,21 @@ final class AppState: ObservableObject {
 
     private func handle(status: Int32, pid: Int32) {
         let wasConnected = isConnected
+        let newPID: Int32? = pid >= 0 ? pid : nil
+        if newPID != devicePID {
+            devicePID = newPID
+            applySafeMode()
+        }
         deviceName = pid >= 0 ? String(cString: aud_product_name(pid)) : nil
         if !wasConnected && isConnected {
             awaitingFirstPoll = true      // decide on power-up restore once we've read the level
             lastDeviceSpeakerRaw = nil
         }
         lastError = status == 0 ? nil : String(format: "USB request failed (0x%08X)", UInt32(bitPattern: status))
+    }
+
+    private func applySafeMode() {
+        writer.setAllowUntested(fullFeaturesOnUntested)
     }
 
     private func updateMeterPolling() {
@@ -551,7 +574,7 @@ final class USBWriter: @unchecked Sendable {
     }
 
     private func readMeters() {
-        guard aud_current_pid() >= 0, pending.isEmpty, !scheduled else { return }
+        guard !safeMode, aud_current_pid() >= 0, pending.isEmpty, !scheduled else { return }
         var outs = [UInt16](repeating: 0, count: 6)
         guard aud_read_output_meters(&outs) == 0 else { return }
         DispatchQueue.main.async { self.onMeters?(outs) }
@@ -585,10 +608,17 @@ final class USBWriter: @unchecked Sendable {
     }
 
     private var lastFullRead = Date.distantPast
+    /// Compatibility mode is decided live from the connected model (see aud_safe_mode), so a
+    /// read can never reach an untested interface — not even in the moment after it connects.
+    private var safeMode: Bool { aud_safe_mode() != 0 }
+
+    func setAllowUntested(_ on: Bool) {
+        queue.async { aud_set_allow_untested(on ? 1 : 0) }
+    }
     private var idButtonRead = false   // read once per connection (plus on change events)
 
     private func poll() {
-        guard aud_current_pid() >= 0, pending.isEmpty, !scheduled else { return }
+        guard !safeMode, aud_current_pid() >= 0, pending.isEmpty, !scheduled else { return }
         if Date().timeIntervalSince(lastFullRead) > 2.0 {
             fullRead()
             return
@@ -626,6 +656,7 @@ final class USBWriter: @unchecked Sendable {
     }
 
     private func fullRead() {
+        guard !safeMode else { return }
         lastFullRead = Date()
         var snap = DeviceSnapshot()
         var raw: Int16 = 0

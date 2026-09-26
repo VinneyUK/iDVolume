@@ -53,7 +53,7 @@ See the [changelog](CHANGELOG.md) for what's new in each version.
 |---|---|
 | macOS | 13 Ventura or later |
 | Tested | Audient **iD14 MKII** |
-| Should work | iD14, iD4, iD4 MKII, iD22, iD24, iD44, iD44 MKII, iD48 — untested, reports welcome |
+| Other iD models | iD14, iD4, iD4 MKII, iD22, iD24, iD44, iD44 MKII, iD48 run in **compatibility mode**: level and switches work, but nothing is read back (no knob sync or meters). Reports welcome |
 
 ## Install
 

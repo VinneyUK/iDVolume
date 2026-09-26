@@ -135,6 +135,22 @@ struct SettingsView: View {
 
     private var interfaceTab: some View {
         VStack(alignment: .leading, spacing: 14) {
+            if !state.modelIsVerified {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "exclamationmark.shield").foregroundStyle(.orange)
+                        Text(state.safeMode
+                             ? "Compatibility mode: iDVolume only sends commands to your \(state.deviceName ?? "interface") and doesn't read anything back, so the level and switches won't follow the hardware. It's only been fully tested on the iD14 MKII."
+                             : "Full features are on for an untested model. If the interface stops responding, switch this off and unplug it for a few seconds.")
+                            .font(.system(size: 12)).foregroundStyle(Skin.ink)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    row("Use full features anyway", hint: "Knob sync, meters and the iD button setting. May hang untested models",
+                        isOn: $state.fullFeaturesOnUntested)
+                }
+                .padding(12)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Skin.well))
+            }
             HStack {
                 labelBlock("iD button", hint: "What the iD button on the interface does")
                 Spacer()

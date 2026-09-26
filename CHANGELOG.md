@@ -2,6 +2,11 @@
 
 All notable changes to iDVolume. Versions are listed newest first.
 
+## 1.7.5
+
+- **Compatibility mode for models other than the iD14 MKII.** iDVolume now only sends commands to untested models (like MixiD) and doesn't read anything back — fixing interfaces (such as the original iD14) locking up until unplugged. Knob sync, meters and the iD button setting stay off on those models unless you choose Settings → Interface → *Use full features anyway*.
+- Headphone controls use the right channels for each model.
+
 ## 1.7.4
 
 - **Dark knobs and faders in the dark finish**: black anodised caps with a light pointer, instead of white metal.

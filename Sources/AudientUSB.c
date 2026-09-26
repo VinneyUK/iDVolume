@@ -14,6 +14,7 @@ static io_service_t g_ctl_service = IO_OBJECT_NULL;   // spare DFU/vendor interf
 static IOUSBInterfaceInterface190 **g_intf = NULL;     // opened lazily, fallback path only
 static int g_iface = 0;
 static int g_iface_override = -1;
+static int g_allow_untested = 0;
 static int g_has_spare = 0;
 static int g_pid = -1;
 static const char *g_last_path = "none";
@@ -24,6 +25,13 @@ static const struct { uint16_t pid; const char *name; } kModels[] = {
     {0x0005, "iD44"},     {0x000b, "iD44 MKII"}, {0x0012, "iD48"},
 };
 #define N_MODELS (sizeof(kModels) / sizeof(kModels[0]))
+
+int aud_model_fully_supported(int pid) { return pid == 0x0008; }   // iD14 MKII
+void aud_set_allow_untested(int on) { g_allow_untested = on ? 1 : 0; }
+int aud_safe_mode(void) { return g_pid >= 0 && !aud_model_fully_supported(g_pid) && !g_allow_untested; }
+
+// Headphone channels: 5/6 on the iD14 MKII (from a capture of Audient's app); MixiD's 3/4 elsewhere.
+static int hp_first_channel(void) { return g_pid == 0x0008 ? 5 : 3; }
 
 const char *aud_product_name(int pid) {
     for (size_t i = 0; i < N_MODELS; i++)
@@ -227,8 +235,9 @@ int aud_set_speaker_raw(int16_t raw) { return (int)send_retry(0x1200, 0x36, raw)
 // Headphones are feature unit 0x0a channels 5/6 on the iD14 MKII (confirmed from a
 // capture of Audient's own app). MixiD uses channels 3/4, which don't work on the MKII.
 int aud_set_headphone_raw(int16_t raw) {
-    IOReturn a = send_retry(0x0205, 0x0a, raw);
-    IOReturn b = send_retry(0x0206, 0x0a, raw);
+    uint16_t ch = (uint16_t)hp_first_channel();
+    IOReturn a = send_retry((uint16_t)(0x0200 | ch), 0x0a, raw);
+    IOReturn b = send_retry((uint16_t)(0x0200 | (ch + 1)), 0x0a, raw);
     return (int)(a != kIOReturnSuccess ? a : b);
 }
 
@@ -241,7 +250,10 @@ static const uint16_t kSwitchSelectors[] = {0x0000 /* mono */, 0x0500 /* dim */,
 // interface the iD applies them but doesn't update its front panel (no LED change/flash), and
 // the headphone controls keep a separate value per interface — so reading them back on the
 // spare interface returns a stale value.
-static int panel_iface(void) { return g_iface_override >= 0 ? g_iface_override : 0; }
+static int panel_iface(void) {
+    if (g_iface_override >= 0) return g_iface_override;
+    return aud_safe_mode() ? g_iface : 0;
+}
 
 int aud_set_monitor_switch(int which, int on) {
     if (which < 0 || which >= N_SWITCHES) return (int)kIOReturnBadArgument;
@@ -309,14 +321,15 @@ int aud_read_monitor_switch(int which, int *out) {
 // switch as pressing the knob in headphone mode.
 int aud_set_headphone_mute(int on) {
     uint8_t b = on ? 1 : 0;
-    IOReturn a = send_bytes_retry_on(panel_iface(), 0x0105, 0x0a, &b, 1);
-    IOReturn d = send_bytes_retry_on(panel_iface(), 0x0106, 0x0a, &b, 1);
+    uint16_t ch = (uint16_t)hp_first_channel();
+    IOReturn a = send_bytes_retry_on(panel_iface(), (uint16_t)(0x0100 | ch), 0x0a, &b, 1);
+    IOReturn d = send_bytes_retry_on(panel_iface(), (uint16_t)(0x0100 | (ch + 1)), 0x0a, &b, 1);
     return (int)(a != kIOReturnSuccess ? a : d);
 }
 
 int aud_read_headphone_mute(int *out) {
     uint8_t b = 0;
-    int n = aud_read_on(panel_iface(), 0x01, 0x0105, 0x0a, &b, 1, 200);
+    int n = aud_read_on(panel_iface(), 0x01, (uint16_t)(0x0100 | hp_first_channel()), 0x0a, &b, 1, 200);
     if (n != 1) return n < 0 ? n : (int)kIOReturnUnderrun;
     *out = b;
     return 0;
