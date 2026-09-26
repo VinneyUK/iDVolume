@@ -8,7 +8,6 @@ struct PanelView: View {
         layout
             .padding(16)
             .background(PlateBackground(brushed: brushed))
-            .environment(\.colorScheme, .light)
             .overlay(alignment: .top) {
                 if !state.isConnected { disconnectedBanner }
             }
@@ -40,7 +39,8 @@ struct PanelView: View {
             Button("Reconnect") { state.reconnect() }.controlSize(.small)
         }
         .padding(.horizontal, 12).padding(.vertical, 7)
-        .background(Capsule().fill(Color.white.opacity(0.95)))
+        .background(Capsule().fill(Skin.plateTop))
+        .foregroundStyle(Skin.ink)
         .shadow(color: .black.opacity(0.2), radius: 6, y: 2)
         .padding(.top, 44)
     }

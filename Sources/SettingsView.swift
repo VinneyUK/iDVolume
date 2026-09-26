@@ -34,7 +34,6 @@ struct SettingsView: View {
         }
         .frame(width: 600, height: 440)
         .background(Skin.plate)
-        .environment(\.colorScheme, .light)
         .tint(Skin.keyDark)
     }
 
@@ -58,7 +57,7 @@ struct SettingsView: View {
         }
         .padding(8)
         .frame(width: 160)
-        .background(Color(hex: 0xd9dbde))
+        .background(Skin.sidebar)
     }
 
     // MARK: Content
@@ -74,6 +73,15 @@ struct SettingsView: View {
 
     private var panelTab: some View {
         VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                labelBlock("Appearance", hint: "Auto follows your Mac's Light and Dark setting")
+                Spacer()
+                Picker("", selection: $state.appearance) {
+                    ForEach(AppAppearance.allCases) { a in Text(a.title).tag(a) }
+                }
+                .labelsHidden().pickerStyle(.segmented).fixedSize()
+            }
+            Divider().padding(.vertical, 4)
             Text("Choose the layout of the menu bar panel.").font(.system(size: 13)).foregroundStyle(Skin.silk)
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
                 ForEach(PanelLayout.allCases) { l in
@@ -87,7 +95,7 @@ struct SettingsView: View {
                         .padding(10)
                         .foregroundStyle(state.panelLayout == l ? Color.white : Skin.ink)
                         .background(RoundedRectangle(cornerRadius: 8).fill(state.panelLayout == l ? AnyShapeStyle(Skin.keyOn) : AnyShapeStyle(Skin.keyLight)))
-                        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(state.panelLayout == l ? Color(hex: 0x2f3236) : Skin.edge))
+                        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(state.panelLayout == l ? Skin.edgeOn : Skin.edge))
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)

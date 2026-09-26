@@ -10,12 +10,15 @@
 </p>
 
 <p align="center">
-  <img src="docs/layouts.png" alt="The ten iDVolume panel layouts">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/layouts-dark.png">
+    <img src="docs/layouts.png" alt="The ten iDVolume panel layouts">
+  </picture>
 </p>
 
 ## Features
 
-- **Ten panel layouts** in a silver hardware skin — knobs, faders, LED keys — chosen in Settings
+- **Ten panel layouts** in a hardware skin — knobs, faders, LED keys — in **Light, Dark or Auto**
 - **Settings window** (gear, ⌘, or right-click the menu bar icon)
 - Speaker level and a headphone trim, with mute on each
 - **Keyboard volume keys** (F10/F11/F12, Touch Bar) control the iD — only while it's the

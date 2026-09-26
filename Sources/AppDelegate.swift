@@ -41,13 +41,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popover.contentViewController = host
         popover.behavior = .transient
         popover.animates = true
-        popover.appearance = NSAppearance(named: .aqua)   // the silver skin is a light design
+        popover.appearance = state.appearance.nsAppearance
         popover.delegate = self
         state.openSettings = { [weak self] in self?.openSettings() }
 
         updateIcon()
         iconObserver = state.objectWillChange.sink { [weak self] _ in
-            DispatchQueue.main.async { self?.updateIcon() }
+            DispatchQueue.main.async {
+                self?.updateIcon()
+                self?.applyAppearance()
+            }
         }
         state.onBarMeter = { [weak self] left, right in
             self?.barLevels = (left, right)
@@ -91,7 +94,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             window.title = "iDVolume Settings"
             window.styleMask = [.titled, .closable]
             window.isReleasedWhenClosed = false
-            window.appearance = NSAppearance(named: .aqua)
+            window.appearance = state.appearance.nsAppearance
             window.center()
             settingsWindow = window
         }
@@ -115,6 +118,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     @objc private func reconnectAction() { state.reconnect() }
+
+    /// Light / Dark / Auto for the panel and the Settings window (nil = follow the system).
+    private func applyAppearance() {
+        let wanted = state.appearance.nsAppearance
+        if popover.appearance?.name != wanted?.name { popover.appearance = wanted }
+        if let w = settingsWindow, w.appearance?.name != wanted?.name { w.appearance = wanted }
+    }
 
     private func updateIcon() {
         guard let button = statusItem.button else { return }

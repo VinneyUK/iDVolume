@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 // MARK: - Skin (silver hardware)
@@ -8,29 +9,53 @@ extension Color {
     }
 }
 
+/// The hardware skin. Every colour is a light/dark pair; macOS picks one from the panel's
+/// appearance (Light, Dark, or Auto = follow the system — see Settings → Panel).
 enum Skin {
-    static let plateTop = Color(hex: 0xeceef0)
-    static let plate = Color(hex: 0xe3e4e7)
-    static let plateLo = Color(hex: 0xd5d7da)
-    static let groove = Color(hex: 0xc4c7cb)
-    static let well = Color(hex: 0xcfd1d5)
-    static let ink = Color(hex: 0x2f3236)
-    static let silk = Color(hex: 0x4f535a)
-    static let silkDim = Color(hex: 0x868a91)
-    static let edge = Color(hex: 0xa2a6ac)
-    static let keyDark = Color(hex: 0x3f4247)
+    /// A colour that resolves per appearance.
+    static func pair(_ light: UInt32, _ dark: UInt32, lightAlpha: CGFloat = 1, darkAlpha: CGFloat = 1) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            return NSColor(hex: isDark ? dark : light, alpha: isDark ? darkAlpha : lightAlpha)
+        })
+    }
+
+    //                               light     dark (graphite)
+    static let plateTop  = pair(0xeceef0, 0x2e3237)
+    static let plate     = pair(0xe3e4e7, 0x24272b)
+    static let plateLo   = pair(0xd5d7da, 0x1f2225)
+    static let groove    = pair(0xc4c7cb, 0x121315)
+    static let well      = pair(0xcfd1d5, 0x1a1c1f)
+    static let sidebar   = pair(0xd9dbde, 0x1d1f22)
+    static let ink       = pair(0x2f3236, 0xe6e8eb)
+    static let silk      = pair(0x4f535a, 0xb9bec6)
+    static let silkDim   = pair(0x868a91, 0x6f757e)
+    static let edge      = pair(0xa2a6ac, 0x15171a)
+    static let edgeOn    = pair(0x2f3236, 0x6a6e75)
+    static let ledOff    = pair(0xb4b7bc, 0x3a3e44)
+    static let tick      = pair(0x9ea2a8, 0x6f757e)
+    static let charcoal  = pair(0x3d4045, 0xd8dbe0)     // lit arcs and fader fills
+    static let keyDark   = pair(0x3f4247, 0x5a5e65)     // selected / "on" fill
+    static let brushLine = pair(0xffffff, 0xffffff, lightAlpha: 0.28, darkAlpha: 0.022)
+
     static let amber = Color(hex: 0xf0a020)
     static let red = Color(hex: 0xe5483a)
     static let green = Color(hex: 0x2fae66)
-    static let charcoal = Color(hex: 0x3d4045)
 
     static func silkFont(_ size: CGFloat = 11) -> Font { .system(size: size, weight: .semibold).width(.condensed) }
     static func readoutFont(_ size: CGFloat) -> Font { .system(size: size, weight: .semibold).width(.condensed).monospacedDigit() }
 
     static let plateGradient = LinearGradient(colors: [plateTop, plate, plateLo], startPoint: .top, endPoint: .bottom)
-    static let keyLight = LinearGradient(colors: [Color(hex: 0xf3f4f6), Color(hex: 0xe1e3e6)], startPoint: .top, endPoint: .bottom)
-    static let keyOn = LinearGradient(colors: [Color(hex: 0x4a4d52), keyDark], startPoint: .top, endPoint: .bottom)
+    static let keyLight = LinearGradient(colors: [pair(0xf3f4f6, 0x363a40), pair(0xe1e3e6, 0x2a2d32)], startPoint: .top, endPoint: .bottom)
+    static let keyOn = LinearGradient(colors: [pair(0x4a4d52, 0x686c73), keyDark], startPoint: .top, endPoint: .bottom)
     static let keyMuted = LinearGradient(colors: [Color(hex: 0xb8392d), Color(hex: 0x9c2c22)], startPoint: .top, endPoint: .bottom)
+}
+
+extension NSColor {
+    convenience init(hex: UInt32, alpha: CGFloat = 1) {
+        self.init(srgbRed: CGFloat((hex >> 16) & 0xff) / 255, green: CGFloat((hex >> 8) & 0xff) / 255,
+                  blue: CGFloat(hex & 0xff) / 255, alpha: alpha)
+    }
 }
 
 /// Level (0…1) → dB text on the app's scale.
@@ -76,7 +101,7 @@ struct LEDView: View {
         TimelineView(.periodic(from: .now, by: 0.5)) { ctx in
             let blinkOff = flash && Int(ctx.date.timeIntervalSinceReferenceDate * 2) % 2 == 1
             Circle()
-                .fill(color.map { blinkOff ? Color(hex: 0xb4b7bc) : $0 } ?? Color(hex: 0xb4b7bc))
+                .fill(color.map { blinkOff ? Skin.ledOff : $0 } ?? Skin.ledOff)
                 .frame(width: size, height: size)
                 .shadow(color: (color != nil && !blinkOff) ? color!.opacity(0.8) : .clear, radius: 3)
         }
@@ -93,7 +118,7 @@ struct PlateBackground: View {
                 Canvas { ctx, size in
                     var x: CGFloat = 0
                     while x < size.width {
-                        ctx.fill(Path(CGRect(x: x, y: 0, width: 1, height: size.height)), with: .color(.white.opacity(0.28)))
+                        ctx.fill(Path(CGRect(x: x, y: 0, width: 1, height: size.height)), with: .color(Skin.brushLine))
                         x += 3
                     }
                 }
@@ -133,8 +158,8 @@ struct HWKey: View {
                 .foregroundStyle(foreground)
                 .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(fill))
                 .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .strokeBorder(isOn ? Color(hex: 0x2f3236) : Skin.edge, lineWidth: 1))
-                .shadow(color: .black.opacity(isOn ? 0 : 0.14), radius: 1, y: 1)
+                    .strokeBorder(isOn ? Skin.edgeOn : Skin.edge, lineWidth: 1))
+                .shadow(color: .black.opacity(isOn ? 0 : 0.18), radius: 1, y: 1)
                 .contentShape(Rectangle())
         }
         .buttonStyle(PressStyle())
@@ -285,7 +310,7 @@ struct HWKnob: View {
             for i in 0...10 {
                 let a = -135 + 27 * Double(i)
                 var p = Path(); p.move(to: point(a, rOuter - 5, c)); p.addLine(to: point(a, rOuter, c))
-                ctx.stroke(p, with: .color(Color(hex: 0x9ea2a8)), lineWidth: 1.5)
+                ctx.stroke(p, with: .color(Skin.tick), lineWidth: 1.5)
             }
         }
 

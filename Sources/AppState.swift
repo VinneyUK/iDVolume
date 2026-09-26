@@ -53,6 +53,23 @@ enum PanelLayout: String, CaseIterable, Identifiable {
     var usesMeter: Bool { self == .rackUnit || self == .meterBridge }
 }
 
+/// Light, Dark, or follow the system.
+enum AppAppearance: String, CaseIterable, Identifiable {
+    case light, dark, auto
+    var id: String { rawValue }
+    var title: String {
+        switch self { case .light: return "Light"; case .dark: return "Dark"; case .auto: return "Auto" }
+    }
+    /// nil = follow the system.
+    var nsAppearance: NSAppearance? {
+        switch self {
+        case .light: return NSAppearance(named: .aqua)
+        case .dark: return NSAppearance(named: .darkAqua)
+        case .auto: return nil
+        }
+    }
+}
+
 /// Which output a single-knob layout is controlling (the app's own choice — the iD doesn't report its knob mode).
 enum KnobTarget: String { case speakers, headphones }
 
@@ -69,7 +86,7 @@ final class AppState: ObservableObject {
         static let keys = "volumeKeys", onlyAudient = "keysOnlyWhenAudient", osd = "osdEnabled"
         static let style = "menuBarStyle", showLevel = "showLevelInMenuBar", restore = "restoreOnPowerUp"
         static let barMeter = "menuBarMeter", idFollows = "idLedFollows"
-        static let layout = "panelLayout", knobTarget = "knobTarget"
+        static let layout = "panelLayout", knobTarget = "knobTarget", appearance = "appearance"
     }
     private let defaults = UserDefaults.standard
     private let writer = USBWriter()
@@ -84,6 +101,9 @@ final class AppState: ObservableObject {
 
     @Published var panelLayout: PanelLayout {
         didSet { defaults.set(panelLayout.rawValue, forKey: K.layout); updateMeterPolling() }
+    }
+    @Published var appearance: AppAppearance {
+        didSet { defaults.set(appearance.rawValue, forKey: K.appearance) }
     }
     @Published var knobTarget: KnobTarget {
         didSet { defaults.set(knobTarget.rawValue, forKey: K.knobTarget) }
@@ -238,6 +258,7 @@ final class AppState: ObservableObject {
         idLedFollows = defaults.object(forKey: K.idFollows) as? Bool ?? true
         panelLayout = PanelLayout(rawValue: defaults.string(forKey: K.layout) ?? "") ?? .consoleStrip
         knobTarget = KnobTarget(rawValue: defaults.string(forKey: K.knobTarget) ?? "") ?? .speakers
+        appearance = AppAppearance(rawValue: defaults.string(forKey: K.appearance) ?? "") ?? .light
         launchAtLogin = SMAppService.mainApp.status == .enabled
 
         writer.onResult = { [weak self] status, pid in self?.handle(status: status, pid: pid) }
