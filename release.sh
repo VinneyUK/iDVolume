@@ -9,10 +9,12 @@ cd "$(dirname "$0")"
 VERSION=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" Info.plist)
 
 # Each release needs a new version number — the app only offers versions newer than its own.
-if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null || \
-   git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null 2>&1; then
+# REPLACE=1 ./release.sh rebuilds an existing version on purpose (to replace its download).
+if [ "${REPLACE:-0}" != "1" ] && { git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null || \
+   git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null 2>&1; }; then
   echo "✗ v$VERSION has already been released. Bump the version in Info.plist first, e.g.:"
   echo "    plutil -replace CFBundleShortVersionString -string <new> Info.plist"
+  echo "  (or REPLACE=1 ./release.sh to deliberately rebuild v$VERSION)"
   exit 1
 fi
 echo "→ Releasing $VERSION"

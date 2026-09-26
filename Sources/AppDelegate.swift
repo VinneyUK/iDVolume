@@ -138,8 +138,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     private func handleScroll(_ event: NSEvent, source: String) {
-        NSLog("iDVolume scroll (%@): dy=%.2f precise=%d connected=%d", source, event.scrollingDeltaY,
-              event.hasPreciseScrollingDeltas ? 1 : 0, state.isConnected ? 1 : 0)
         state.scroll(event)
     }
 

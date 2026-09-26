@@ -272,7 +272,6 @@ final class AppState: ObservableObject {
             let out = AudioOutput.current()
             let take = out.isAudient || !self.keysOnlyWhenAudient
             if down {
-                NSLog("iDVolume key %@ taken=%d output=%@", "\(key)", take ? 1 : 0, out.name)
                 if take { self.handleKey(key, flags: flags) }
             }
             return take
