@@ -10,10 +10,6 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshot.png" width="320" alt="iDVolume menu bar panel">
-</p>
-
-<p align="center">
   <img src="docs/layouts.png" alt="The ten iDVolume panel layouts">
 </p>
 

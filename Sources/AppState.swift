@@ -18,17 +18,77 @@ enum IDButtonFunction: Int, CaseIterable, Identifiable {
     }
 }
 
+/// The ten panel designs.
+enum PanelLayout: String, CaseIterable, Identifiable {
+    case consoleStrip, faceplate, twinKnobs, faderBank, ringFocus, rackUnit, compact, meterBridge, splitSurface, illuminatedKeys
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .consoleStrip: return "Console strip"
+        case .faceplate: return "Faceplate"
+        case .twinKnobs: return "Twin knobs"
+        case .faderBank: return "Fader bank"
+        case .ringFocus: return "Ring focus"
+        case .rackUnit: return "Rack unit"
+        case .compact: return "Compact"
+        case .meterBridge: return "Meter bridge"
+        case .splitSurface: return "Split surface"
+        case .illuminatedKeys: return "Illuminated keys"
+        }
+    }
+    var summary: String {
+        switch self {
+        case .consoleStrip: return "One knob for the selected output, button matrix below"
+        case .faceplate: return "LED-ring knob with a switch column; headphones on a trim knob"
+        case .twinKnobs: return "Equal knobs for speakers and headphones"
+        case .faderBank: return "Two long-throw faders with a switch column"
+        case .ringFocus: return "One large LED-ring knob, switches as LEDs"
+        case .rackUnit: return "Wide 1U strip with a stereo meter"
+        case .compact: return "Smallest: one slider and a key grid"
+        case .meterBridge: return "Stereo meter and a large readout"
+        case .splitSurface: return "Speakers on top, headphones on a lower plate"
+        case .illuminatedKeys: return "Backlit keys and long horizontal faders"
+        }
+    }
+    var usesMeter: Bool { self == .rackUnit || self == .meterBridge }
+}
+
+/// Which output a single-knob layout is controlling (the app's own choice — the iD doesn't report its knob mode).
+enum KnobTarget: String { case speakers, headphones }
+
+/// Speaker output levels for the panel's meters (dBFS, with fall-back).
+final class PanelLevels: ObservableObject {
+    @Published var left = -120.0
+    @Published var right = -120.0
+    func reset() { left = -120; right = -120 }
+}
+
 final class AppState: ObservableObject {
     private enum K {
         static let speakers = "speakers", headphones = "headphones"
         static let keys = "volumeKeys", onlyAudient = "keysOnlyWhenAudient", osd = "osdEnabled"
         static let style = "menuBarStyle", showLevel = "showLevelInMenuBar", restore = "restoreOnPowerUp"
         static let barMeter = "menuBarMeter", idFollows = "idLedFollows"
+        static let layout = "panelLayout", knobTarget = "knobTarget"
     }
     private let defaults = UserDefaults.standard
     private let writer = USBWriter()
     private let keyTap = MediaKeyTap()
     private let hud = VolumeHUD()
+    /// Opens the Settings window (set by the app delegate).
+    var openSettings: (() -> Void)?
+
+    /// Set by the app delegate when the popover opens/closes.
+    var panelOpen = false { didSet { updateMeterPolling() } }
+    let panelLevels = PanelLevels()
+
+    @Published var panelLayout: PanelLayout {
+        didSet { defaults.set(panelLayout.rawValue, forKey: K.layout); updateMeterPolling() }
+    }
+    @Published var knobTarget: KnobTarget {
+        didSet { defaults.set(knobTarget.rawValue, forKey: K.knobTarget) }
+    }
+
     /// Menu bar meter feed: speaker L/R in dBFS.
     var onBarMeter: ((Double, Double) -> Void)?
     private static let silence = -120.0
@@ -176,6 +236,8 @@ final class AppState: ObservableObject {
         showLevelInMenuBar = defaults.bool(forKey: K.showLevel)
         menuBarMeter = defaults.bool(forKey: K.barMeter)
         idLedFollows = defaults.object(forKey: K.idFollows) as? Bool ?? true
+        panelLayout = PanelLayout(rawValue: defaults.string(forKey: K.layout) ?? "") ?? .consoleStrip
+        knobTarget = KnobTarget(rawValue: defaults.string(forKey: K.knobTarget) ?? "") ?? .speakers
         launchAtLogin = SMAppService.mainApp.status == .enabled
 
         writer.onResult = { [weak self] status, pid in self?.handle(status: status, pid: pid) }
@@ -376,19 +438,38 @@ final class AppState: ObservableObject {
     }
 
     private func updateMeterPolling() {
-        writer.setMetering(menuBarMeter)
+        let panelMeter = panelOpen && panelLayout.usesMeter
+        writer.setMetering(menuBarMeter || panelMeter)
         if !menuBarMeter {
             barLeft = Self.silence
             barRight = Self.silence
         }
+        if !panelMeter { panelLevels.reset() }
     }
 
     private func handleMeters(_ outs: [UInt16]) {
-        guard menuBarMeter, outs.count >= 2 else { return }
-        barLeft = max(Self.dB(outs[0]), max(Self.silence, barLeft - 1.3))    // smooth fall
-        barRight = max(Self.dB(outs[1]), max(Self.silence, barRight - 1.3))
-        onBarMeter?(barLeft, barRight)
+        guard outs.count >= 2 else { return }
+        let l = Self.dB(outs[0]), r = Self.dB(outs[1])
+        if menuBarMeter {
+            barLeft = max(l, max(Self.silence, barLeft - 1.3))    // smooth fall
+            barRight = max(r, max(Self.silence, barRight - 1.3))
+            onBarMeter?(barLeft, barRight)
+        }
+        if panelOpen && panelLayout.usesMeter {   // only while someone can see it
+            panelLevels.left = max(l, max(Self.silence, panelLevels.left - 1.3))
+            panelLevels.right = max(r, max(Self.silence, panelLevels.right - 1.3))
+        }
     }
+
+    // MARK: - Convenience for the panels
+
+    /// Level of whichever output a single-knob layout controls.
+    var targetLevel: Double {
+        get { knobTarget == .speakers ? speakers : headphones }
+        set { if knobTarget == .speakers { speakers = newValue } else { headphones = newValue } }
+    }
+    var targetMuted: Bool { knobTarget == .speakers ? muted : headphonesMuted }
+    func toggleTargetMute() { if knobTarget == .speakers { muted.toggle() } else { headphonesMuted.toggle() } }
 
     private func updateKeyTap() {
         accessibilityGranted = AXIsProcessTrusted()
