@@ -38,6 +38,21 @@ enum Skin {
     static let keyDark   = pair(0x3f4247, 0x5a5e65)     // selected / "on" fill
     static let brushLine = pair(0xffffff, 0xffffff, lightAlpha: 0.28, darkAlpha: 0.022)
 
+    // Knobs: white metal on the light finish, black anodised on the dark finish.
+    static let knobCapHi   = pair(0xffffff, 0x5e636b)
+    static let knobCapMid  = pair(0xe2e4e7, 0x2e3237)
+    static let knobCapLo   = pair(0xaeb2b8, 0x16181b)
+    static let knobSkirtHi = pair(0x8c9097, 0x3a3e44)
+    static let knobSkirtLo = pair(0x3f4247, 0x0c0d0f)
+    static let knobPointer = pair(0x2f3236, 0xeef0f2)
+
+    // Fader caps, same idea.
+    static let capTop  = pair(0xfafbfc, 0x4a4e55)
+    static let capMid  = pair(0xd3d6da, 0x2a2d32)
+    static let capLow  = pair(0xe8eaec, 0x3a3e44)
+    static let capEdge = pair(0x9ea2a8, 0x0f1012)
+    static let capLine = pair(0x3d4045, 0xe6e8eb)
+
     static let amber = Color(hex: 0xf0a020)      // level scale + update badge only
     static let ledOn = Color(hex: 0x2fd46e)      // "on" LEDs and backlit labels
     static let red = Color(hex: 0xe5483a)
@@ -382,14 +397,14 @@ struct HWKnob: View {
         ctx.fill(Path(ellipseIn: shadow), with: .color(Color(hex: 0x282c32).opacity(0.25)))
         let skirt = CGRect(x: c.x - rBody - 4, y: c.y - rBody - 4, width: (rBody + 4) * 2, height: (rBody + 4) * 2)
         ctx.fill(Path(ellipseIn: skirt), with: .linearGradient(
-            Gradient(colors: [Color(hex: 0x8c9097), Color(hex: 0x3f4247)]),
+            Gradient(colors: [Skin.knobSkirtHi, Skin.knobSkirtLo]),
             startPoint: CGPoint(x: c.x, y: skirt.minY), endPoint: CGPoint(x: c.x, y: skirt.maxY)))
         let cap = CGRect(x: c.x - rBody, y: c.y - rBody, width: rBody * 2, height: rBody * 2)
         ctx.fill(Path(ellipseIn: cap), with: .radialGradient(
-            Gradient(colors: [.white, Color(hex: 0xe2e4e7), Color(hex: 0xaeb2b8)]),
+            Gradient(colors: [Skin.knobCapHi, Skin.knobCapMid, Skin.knobCapLo]),
             center: CGPoint(x: c.x - rBody * 0.25, y: c.y - rBody * 0.4), startRadius: 0, endRadius: rBody * 1.5))
         var pointer = Path(); pointer.move(to: c); pointer.addLine(to: point(angle, rBody * 0.72, c))
-        ctx.stroke(pointer, with: .color(Skin.ink), style: StrokeStyle(lineWidth: max(2, sz.width / 36), lineCap: .round))
+        ctx.stroke(pointer, with: .color(Skin.knobPointer), style: StrokeStyle(lineWidth: max(2, sz.width / 36), lineCap: .round))
     }
 }
 
@@ -427,9 +442,9 @@ struct HWFader: View {
 
     private var capView: some View {
         RoundedRectangle(cornerRadius: 4)
-            .fill(LinearGradient(colors: [Color(hex: 0xfafbfc), Color(hex: 0xd3d6da), Color(hex: 0xe8eaec)], startPoint: .top, endPoint: .bottom))
-            .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(Color(hex: 0x9ea2a8), lineWidth: 1))
-            .overlay(Rectangle().fill(Skin.charcoal).frame(height: 2).padding(.horizontal, 3))
+            .fill(LinearGradient(colors: [Skin.capTop, Skin.capMid, Skin.capLow], startPoint: .top, endPoint: .bottom))
+            .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(Skin.capEdge, lineWidth: 1))
+            .overlay(Rectangle().fill(Skin.capLine).frame(height: 2).padding(.horizontal, 3))
             .frame(width: 28, height: 22)
             .shadow(color: .black.opacity(0.3), radius: 2, y: 2)
     }
@@ -449,9 +464,9 @@ struct HWSlider: View {
                 RoundedRectangle(cornerRadius: 2).fill(Skin.groove).frame(width: travel, height: 4).offset(x: 10)
                 RoundedRectangle(cornerRadius: 2).fill(Skin.charcoal.opacity(0.8)).frame(width: max(0, travel * value), height: 4).offset(x: 10)
                 RoundedRectangle(cornerRadius: 3)
-                    .fill(LinearGradient(colors: [Color(hex: 0xd3d6da), Color(hex: 0xfafbfc), Color(hex: 0xd0d3d7)], startPoint: .leading, endPoint: .trailing))
-                    .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(Color(hex: 0x9ea2a8), lineWidth: 1))
-                    .overlay(Rectangle().fill(Skin.charcoal).frame(width: 2).padding(.vertical, 3))
+                    .fill(LinearGradient(colors: [Skin.capMid, Skin.capTop, Skin.capMid], startPoint: .leading, endPoint: .trailing))
+                    .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(Skin.capEdge, lineWidth: 1))
+                    .overlay(Rectangle().fill(Skin.capLine).frame(width: 2).padding(.vertical, 3))
                     .frame(width: thin ? 12 : 16, height: thin ? 16 : 26)
                     .shadow(color: .black.opacity(0.3), radius: 2, y: 2)
                     .offset(x: 10 + travel * value - (thin ? 6 : 8))

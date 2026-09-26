@@ -281,8 +281,8 @@ struct RackUnitLayout: View {
     }
     private var screw: some View {
         Circle()
-            .fill(RadialGradient(colors: [Color(hex: 0xfdfdfd), Color(hex: 0x9ea2a8)], center: .init(x: 0.35, y: 0.35), startRadius: 0, endRadius: 6))
-            .overlay(Rectangle().fill(Color(hex: 0x6c7077)).frame(width: 6, height: 1).rotationEffect(.degrees(35)))
+            .fill(RadialGradient(colors: [Skin.pair(0xfdfdfd, 0x8a9098), Skin.pair(0x9ea2a8, 0x3a3e44)], center: .init(x: 0.35, y: 0.35), startRadius: 0, endRadius: 6))
+            .overlay(Rectangle().fill(Skin.pair(0x6c7077, 0x1c1e21)).frame(width: 6, height: 1).rotationEffect(.degrees(35)))
             .overlay(Circle().strokeBorder(.black.opacity(0.15), lineWidth: 0.5))
             .frame(width: 9, height: 9)
     }
