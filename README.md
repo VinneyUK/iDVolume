@@ -13,9 +13,15 @@
   <img src="docs/screenshot.png" width="320" alt="iDVolume menu bar panel">
 </p>
 
+<p align="center">
+  <img src="docs/layouts.png" alt="The ten iDVolume panel layouts">
+</p>
+
 ## Features
 
-- **Menu bar sliders** for speaker level and a headphone trim, with mute on each
+- **Ten panel layouts** in a silver hardware skin — knobs, faders, LED keys — chosen in Settings
+- **Settings window** (gear, ⌘, or right-click the menu bar icon)
+- Speaker level and a headphone trim, with mute on each
 - **Keyboard volume keys** (F10/F11/F12, Touch Bar) control the iD — only while it's the
   selected output, so built-in speakers and AirPods behave normally. Option+Shift for fine steps.
 - **Scroll over the menu bar icon** to change volume
