@@ -91,6 +91,8 @@ The USB protocol comes from [MixiD](https://github.com/TheOnlyJoey/MixiD) by
 [@TheOnlyJoey](https://github.com/TheOnlyJoey) — an unofficial Linux control panel for the
 iD series. Thank you!
 
+See the [announcement on the MixiD issue tracker](https://github.com/TheOnlyJoey/MixiD/issues/29).
+
 ## Disclaimer
 
 Unofficial. Not affiliated with, endorsed by, or supported by Audient. "Audient" and "iD" are
