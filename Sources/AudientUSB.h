@@ -32,6 +32,28 @@ int aud_set_headphone_raw(int16_t raw);
 #define AUD_SW_DIM 1
 #define AUD_SW_ALT 2
 #define AUD_SW_POLARITY 3
+#define AUD_SW_MUTE 4       // hardware speaker mute (what pressing the knob toggles)
 int aud_set_monitor_switch(int which, int on);
+
+// Read-back (confirmed on iD14 MKII: live, follows the hardware knob and buttons).
+// 0 on success, otherwise an error code.
+int aud_read_speaker_raw(int16_t *out);
+// Headphone mute (feature unit 0x0a, channels 5/6 on the iD14 MKII).
+int aud_set_headphone_mute(int on);
+int aud_read_headphone_mute(int *out);
+// The iD's change queue (entity 0x3e, CS 0x06): returns 1 and fills cs/cn/entity if a
+// control changed since the last read, 0 if nothing changed, <0 on error.
+// cn is 0-based here (channel N+1 in control terms).
+int aud_read_change_event(uint8_t *cs, uint8_t *cn, uint8_t *entity);
+int aud_read_monitor_switch(int which, int *out);
+// Inverse of aud_raw_from_position; levels below the floor clamp to 0.
+double aud_position_from_raw(int16_t raw, double floor_db);
+
+// --- Reverse-engineering helpers (read-only) ---
+// Class GET request (interface recipient, device->host). Returns bytes read (>= 0)
+// or a negative IOReturn code. Device path only, no retries, so scans stay fast.
+int aud_read(uint8_t request, uint16_t wValue, uint8_t entity, uint8_t *buf, uint16_t len, uint32_t timeout_ms);
+// Pointer to the raw configuration descriptor; returns its length or -1.
+int aud_config_descriptor(const uint8_t **out);
 
 #endif

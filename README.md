@@ -15,12 +15,14 @@
 
 ## Features
 
-- **Menu bar sliders** for speaker and headphone level
+- **Menu bar sliders** for speaker level and a headphone trim, with mute on each
 - **Keyboard volume keys** (F10/F11/F12, Touch Bar) control the iD — only while it's the
   selected output, so built-in speakers and AirPods behave normally. Option+Shift for fine steps.
 - **Scroll over the menu bar icon** to change volume
 - **On-screen display** when using the keys or scroll (can be turned off)
-- **Monitor switches**: Mute, Dim, Mono, Alt speakers
+- **Knob sync** — turn or press the iD's knob and the app follows (with the on-screen display)
+- **Monitor switches**: Mute, Dim, Mono, Alt speakers — read back from the interface
+- **Restores your level** when the iD powers on (it starts up silent)
 - Talks to the interface directly over USB — audio keeps playing, nothing else to install
 - Launch at login
 
@@ -45,8 +47,7 @@ cp -R build/iDVolume.app /Applications/
 open /Applications/iDVolume.app
 ```
 
-**Before using it for the first time, turn your monitors down.** The app can't read the
-interface's current level, so the first slider move sets the hardware to the slider position.
+The app reads the interface's current level when it starts, so the slider always matches the knob.
 
 ### Test from the command line (optional)
 
@@ -54,7 +55,9 @@ interface's current level, so the first slider move sets the hardware to the sli
 ./build/idvol              # detect the interface
 ./build/idvol 0.3          # speakers to 30%
 ./build/idvol 0.4 phones   # headphones to 40%
-./build/idvol dim on       # dim | mono | alt | polarity — on | off
+./build/idvol dim on       # dim | mono | alt | polarity | mute — on | off
+./build/idvol probe        # read back known controls
+./build/idvol watch        # print changes live while you use the hardware
 ```
 
 ## Permissions
@@ -72,16 +75,31 @@ tccutil reset Accessibility com.vinneyuk.idvolume
 
 ## Known limitations
 
-- **Write-only.** The iD's current volume and switch states can't be read back yet, so
-  turning the hardware knob won't move the slider. The app re-sends its Dim/Mono/Alt state
-  when the interface connects.
+- **The headphone knob can't be followed.** In headphone mode the iD adjusts and mutes the
+  headphones internally: it announces *that* the level changed but never reports the value
+  (Audient's own app gets the same blank reading). The app's headphone slider and mute are a
+  separate digital trim on the headphone output — they work, but don't mirror the knob.
+  Speaker level, mute, Dim, Mono and Alt all sync both ways.
+- Some control reads make the iD's firmware stop answering until it's power-cycled (routing
+  entity `0x33`, monitor entity `0x36` selector `0x10`). The app never reads those; the
+  `idvol scan` tool avoids them and stops safely if it finds another.
 - The slider curve assumes standard USB Audio units (1/256 dB) over a 64 dB range —
   adjust `AUD_DEFAULT_FLOOR_DB` in `Sources/AudientUSB.h` if it feels off.
 - Quit Audient's own iD app while using this, so the two don't fight.
 
 ## How it works
 
-The iD's mixer is controlled with USB Audio class `SET_CUR` requests. iDVolume sends them
+The iD's mixer is controlled with USB Audio class `CUR` requests — `SET` to change a control,
+`GET` to read it back (the level and switches are polled a few times a second).
+
+| Control | Entity | Selector / channel |
+|---|---|---|
+| Speaker level | `0x36` | CS `0x12`, ch 0 — 1/256 dB, knob steps are 1 dB |
+| Speaker mute / Dim / Mono / Alt | `0x36` | CS `0x04` / `0x05` / `0x00` / `0x0c` |
+| Headphone trim / mute (iD14 MKII) | `0x0a` | CS `0x02` / `0x01`, ch 5 and 6 |
+| Change queue | `0x3e` | CS `0x06`, 4 bytes: `CS, ch-1, 00, entity`, or `ff … ff` when empty |
+
+Headphone channels and the change queue were found by capturing Audient's own app on Windows. iDVolume sends them
 through IOKit to the interface's spare DFU interface, so Core Audio keeps the audio
 interfaces and playback isn't interrupted. The volume keys are captured with a `CGEvent` tap.
 

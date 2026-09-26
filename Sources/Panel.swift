@@ -15,7 +15,10 @@ struct PanelView: View {
                              value: $state.speakers, muted: state.muted,
                              help: state.muted ? "Unmute" : "Mute") { state.muted.toggle() }
                 LevelControl(title: "Headphones", symbol: "headphones",
-                             value: $state.headphones, muted: false, help: nil, iconAction: nil)
+                             value: $state.headphones, muted: state.headphonesMuted,
+                             help: state.headphonesMuted ? "Unmute headphones" : "Mute headphones") {
+                    state.headphonesMuted.toggle()
+                }
             }
             .disabled(!state.isConnected)
 
@@ -41,6 +44,7 @@ struct PanelView: View {
                     NoticeRow(message: problem.message, action: problem.action) { state.fixKeyProblem() }
                 }
                 SettingRow(title: "On-screen display", isOn: $state.osdEnabled)
+                SettingRow(title: "Restore level at power-on", isOn: $state.restoreOnPowerUp)
                 HStack {
                     Text("Menu bar icon").font(.system(size: 13))
                     Spacer(minLength: 12)
@@ -83,11 +87,21 @@ struct PanelView: View {
         }
     }
 
+    /// Read from Info.plist (CFBundleShortVersionString) — bump it there.
+    private var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+    }
+
     private var footer: some View {
         HStack {
             Button { state.reconnect() } label: {
                 Label("Reconnect", systemImage: "arrow.clockwise")
             }
+            Spacer()
+            Text("v\(appVersion)")
+                .font(.system(size: 10))
+                .foregroundStyle(.tertiary)
+                .help("iDVolume \(appVersion)")
             Spacer()
             Button("Quit iDVolume") { NSApp.terminate(nil) }
                 .keyboardShortcut("q")

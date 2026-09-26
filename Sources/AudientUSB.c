@@ -218,19 +218,95 @@ static IOReturn send_retry(uint16_t wValue, uint8_t entity, int16_t raw) {
 
 int aud_set_speaker_raw(int16_t raw) { return (int)send_retry(0x1200, 0x36, raw); }
 
+// Headphones are feature unit 0x0a channels 5/6 on the iD14 MKII (confirmed from a
+// capture of Audient's own app). MixiD uses channels 3/4, which don't work on the MKII.
 int aud_set_headphone_raw(int16_t raw) {
-    IOReturn a = send_retry(0x0203, 0x0a, raw);
-    IOReturn b = send_retry(0x0204, 0x0a, raw);
+    IOReturn a = send_retry(0x0205, 0x0a, raw);
+    IOReturn b = send_retry(0x0206, 0x0a, raw);
     return (int)(a != kIOReturnSuccess ? a : b);
 }
 
-// Selectors from MixiD's masterVals, sent to the monitor entity (0x36).
+// Selectors from MixiD's masterVals, on the monitor entity (0x36).
+static const uint16_t kSwitchSelectors[] = {0x0000 /* mono */, 0x0500 /* dim */, 0x0c00 /* alt */,
+                                            0x0300 /* polarity */, 0x0400 /* mute */};
+#define N_SWITCHES (int)(sizeof(kSwitchSelectors) / sizeof(kSwitchSelectors[0]))
+
 int aud_set_monitor_switch(int which, int on) {
-    static const uint16_t kSelectors[] = {0x0000 /* mono */, 0x0500 /* dim */,
-                                          0x0c00 /* alt */, 0x0300 /* polarity */};
-    if (which < 0 || which > 3) return (int)kIOReturnBadArgument;
+    if (which < 0 || which >= N_SWITCHES) return (int)kIOReturnBadArgument;
     uint8_t b = on ? 1 : 0;
-    return (int)send_bytes_retry(kSelectors[which], 0x36, &b, 1);
+    return (int)send_bytes_retry(kSwitchSelectors[which], 0x36, &b, 1);
+}
+
+int aud_read(uint8_t request, uint16_t wValue, uint8_t entity, uint8_t *buf, uint16_t len, uint32_t timeout_ms) {
+    if (!g_dev && aud_connect() < 0) return (int)kIOReturnNoDevice;
+    IOUSBDevRequestTO req;
+    memset(&req, 0, sizeof(req));
+    req.bmRequestType = USBmakebmRequestType(kUSBIn, kUSBClass, kUSBInterface);
+    req.bRequest = request;
+    req.wValue = wValue;
+    req.wIndex = (uint16_t)((entity << 8) | (g_iface & 0xFF));
+    req.wLength = len;
+    req.pData = buf;
+    req.noDataTimeout = timeout_ms;
+    req.completionTimeout = timeout_ms;
+    IOReturn kr = (*g_dev)->DeviceRequestTO(g_dev, &req);
+    if (kr != kIOReturnSuccess) return (int)kr;
+    return (int)req.wLenDone;
+}
+
+int aud_read_speaker_raw(int16_t *out) {
+    uint8_t b[2] = {0};
+    int n = aud_read(0x01, 0x1200, 0x36, b, 2, 200);
+    if (n != 2) return n < 0 ? n : (int)kIOReturnUnderrun;
+    *out = (int16_t)(b[0] | (b[1] << 8));
+    return 0;
+}
+
+int aud_read_monitor_switch(int which, int *out) {
+    if (which < 0 || which >= N_SWITCHES) return (int)kIOReturnBadArgument;
+    uint8_t b = 0;
+    int n = aud_read(0x01, kSwitchSelectors[which], 0x36, &b, 1, 200);
+    if (n != 1) return n < 0 ? n : (int)kIOReturnUnderrun;
+    *out = b;
+    return 0;
+}
+
+int aud_set_headphone_mute(int on) {
+    uint8_t b = on ? 1 : 0;
+    IOReturn a = send_bytes_retry(0x0105, 0x0a, &b, 1);
+    IOReturn d = send_bytes_retry(0x0106, 0x0a, &b, 1);
+    return (int)(a != kIOReturnSuccess ? a : d);
+}
+
+int aud_read_headphone_mute(int *out) {
+    uint8_t b = 0;
+    int n = aud_read(0x01, 0x0105, 0x0a, &b, 1, 200);
+    if (n != 1) return n < 0 ? n : (int)kIOReturnUnderrun;
+    *out = b;
+    return 0;
+}
+
+int aud_read_change_event(uint8_t *cs, uint8_t *cn, uint8_t *entity) {
+    uint8_t b[4] = {0};
+    int n = aud_read(0x01, 0x0600, 0x3e, b, 4, 200);
+    if (n != 4) return n < 0 ? n : (int)kIOReturnUnderrun;
+    if (b[0] == 0xff && b[3] == 0xff) return 0;   // "nothing new"
+    *cs = b[0]; *cn = b[1]; *entity = b[3];
+    return 1;
+}
+
+int aud_config_descriptor(const uint8_t **out) {
+    if (!g_dev && aud_connect() < 0) return -1;
+    IOUSBConfigurationDescriptorPtr d = NULL;
+    if ((*g_dev)->GetConfigurationDescriptorPtr(g_dev, 0, &d) != kIOReturnSuccess || !d) return -1;
+    *out = (const uint8_t *)d;
+    return (int)USBToHostWord(d->wTotalLength);
+}
+
+double aud_position_from_raw(int16_t raw, double floor_db) {
+    if (raw == INT16_MIN) return 0.0;
+    double p = 1.0 - (raw / 256.0) / floor_db;
+    return p < 0.0 ? 0.0 : (p > 1.0 ? 1.0 : p);
 }
 
 int16_t aud_raw_from_position(double p, double floor_db) {
