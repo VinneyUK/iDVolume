@@ -3,12 +3,27 @@ import ApplicationServices
 import ServiceManagement
 import SwiftUI
 
+/// What the iD's front-panel "iD" button does. Raw values are the iD's own function codes.
+enum IDButtonFunction: Int, CaseIterable, Identifiable {
+    case dim = 0x05, mono = 0x00, monoPolarity = 0x03, alt = 0x0c, talkback = 0x07
+    var id: Int { rawValue }
+    var title: String {
+        switch self {
+        case .dim: return "Dim"
+        case .mono: return "Mono"
+        case .monoPolarity: return "Mono + Polarity"
+        case .alt: return "Alt speakers"
+        case .talkback: return "Talkback"
+        }
+    }
+}
+
 final class AppState: ObservableObject {
     private enum K {
         static let speakers = "speakers", headphones = "headphones"
         static let keys = "volumeKeys", onlyAudient = "keysOnlyWhenAudient", osd = "osdEnabled"
         static let style = "menuBarStyle", showLevel = "showLevelInMenuBar", restore = "restoreOnPowerUp"
-        static let barMeter = "menuBarMeter"
+        static let barMeter = "menuBarMeter", idFollows = "idLedFollows"
     }
     private let defaults = UserDefaults.standard
     private let writer = USBWriter()
@@ -63,9 +78,47 @@ final class AppState: ObservableObject {
     }
 
     // MARK: Monitor switches (read back from the interface)
-    @Published var dim = false { didSet { if !applyingFromDevice { write(.dim, dim ? 1 : 0) } } }
-    @Published var mono = false { didSet { if !applyingFromDevice { write(.mono, mono ? 1 : 0) } } }
-    @Published var alt = false { didSet { if !applyingFromDevice { write(.alt, alt ? 1 : 0) } } }
+    @Published var dim = false {
+        didSet { if !applyingFromDevice { write(.dim, dim ? 1 : 0); followLED(.dim, on: dim) } }
+    }
+    /// Polarity check. The iD forces Mono on while Polarity is on (and releases it after), so
+    /// following the LED uses the "Mono + Polarity" assignment, which matches that exactly.
+    @Published var polarity = false {
+        didSet {
+            guard !applyingFromDevice else { return }
+            write(.polarity, polarity ? 1 : 0)
+            if polarity { mono = true } else if mono { applyingFromDevice = true; mono = false; applyingFromDevice = false }
+            followLED(.monoPolarity, on: polarity)
+        }
+    }
+    /// Talkback. The iD switches Dim on with it (and off after); that comes back via the change queue.
+    @Published var talkback = false {
+        didSet { if !applyingFromDevice { write(.talkback, talkback ? 1 : 0); followLED(.talkback, on: talkback) } }
+    }
+    @Published var mono = false {
+        didSet { if !applyingFromDevice { write(.mono, mono ? 1 : 0); followLED(.mono, on: mono) } }
+    }
+    @Published var alt = false {
+        didSet { if !applyingFromDevice { write(.alt, alt ? 1 : 0); followLED(.alt, on: alt) } }
+    }
+
+    /// The iD button's chosen function (the dropdown) — nil until read from the interface.
+    @Published var idButton: IDButtonFunction? = nil {
+        didSet {
+            guard !applyingFromDevice, let f = idButton, f != oldValue else { return }
+            temporaryIDButton = nil
+            write(.idButton, Int16(f.rawValue))
+        }
+    }
+    /// When on, switching Dim/Mono/Alt on in the app temporarily assigns the iD button to that
+    /// function, because its LED can only show the function it's assigned to.
+    @Published var idLedFollows: Bool {
+        didSet {
+            defaults.set(idLedFollows, forKey: K.idFollows)
+            if !idLedFollows { restoreIDButton() }
+        }
+    }
+    private var temporaryIDButton: IDButtonFunction?
 
     // MARK: Settings
     @Published var volumeKeysEnabled: Bool {
@@ -122,6 +175,7 @@ final class AppState: ObservableObject {
         menuBarStyle = MenuBarStyle(rawValue: defaults.string(forKey: K.style) ?? "") ?? .knob
         showLevelInMenuBar = defaults.bool(forKey: K.showLevel)
         menuBarMeter = defaults.bool(forKey: K.barMeter)
+        idLedFollows = defaults.object(forKey: K.idFollows) as? Bool ?? true
         launchAtLogin = SMAppService.mainApp.status == .enabled
 
         writer.onResult = { [weak self] status, pid in self?.handle(status: status, pid: pid) }
@@ -253,6 +307,44 @@ final class AppState: ObservableObject {
         if let d = snap.dim, settled(.dim), d != dim { dim = d }
         if let m = snap.mono, settled(.mono), m != mono { mono = m }
         if let a = snap.alt, settled(.alt), a != alt { alt = a }
+        if let p = snap.polarity, settled(.polarity), p != polarity { polarity = p }
+        if let t = snap.talkback, settled(.talkback), t != talkback { talkback = t }
+        if let code = snap.idButton, settled(.idButton), temporaryIDButton == nil,
+           let f = IDButtonFunction(rawValue: code), f != idButton {
+            idButton = f
+        }
+        // The followed function was switched off (e.g. by pressing the iD button): hand the
+        // button back to the dropdown's choice.
+        if let t = temporaryIDButton, !isOn(t) { restoreIDButton() }
+    }
+
+    // MARK: - iD LED follow
+
+    private func isOn(_ f: IDButtonFunction) -> Bool {
+        switch f {
+        case .dim: return dim
+        case .mono: return mono
+        case .alt: return alt
+        case .monoPolarity: return mono && polarity
+        case .talkback: return talkback
+        }
+    }
+
+    private func followLED(_ f: IDButtonFunction, on: Bool) {
+        guard idLedFollows, isConnected else { return }
+        if on {
+            guard f != (temporaryIDButton ?? idButton) else { return }
+            temporaryIDButton = f
+            write(.idButton, Int16(f.rawValue))
+        } else if temporaryIDButton == f {
+            restoreIDButton()
+        }
+    }
+
+    private func restoreIDButton() {
+        guard temporaryIDButton != nil else { return }
+        temporaryIDButton = nil
+        if let pref = idButton { write(.idButton, Int16(pref.rawValue)) }
     }
 
     // MARK: - Private
@@ -314,15 +406,18 @@ final class AppState: ObservableObject {
 
 // MARK: - USB access (one serial queue: writes coalesced, reads polled)
 
-enum USBTarget: Hashable { case speakers, headphones, phonesMute, mute, dim, mono, alt }
+enum USBTarget: Hashable { case speakers, headphones, phonesMute, mute, dim, polarity, talkback, mono, alt, idButton }
 
 struct DeviceSnapshot {
     var speakerRaw: Int16?
     var mute: Bool?
     var phonesMute: Bool?
     var dim: Bool?
+    var polarity: Bool?
+    var talkback: Bool?
     var mono: Bool?
     var alt: Bool?
+    var idButton: Int?
 }
 
 final class USBWriter: @unchecked Sendable {
@@ -388,6 +483,7 @@ final class USBWriter: @unchecked Sendable {
     }
 
     private var lastFullRead = Date.distantPast
+    private var idButtonRead = false   // read once per connection (plus on change events)
 
     private func poll() {
         guard aud_current_pid() >= 0, pending.isEmpty, !scheduled else { return }
@@ -416,10 +512,13 @@ final class USBWriter: @unchecked Sendable {
         if changed.contains(0x3604) { snap.mute = readSwitch(AUD_SW_MUTE) }
         if changed.contains(0x3605) { snap.dim = readSwitch(AUD_SW_DIM) }
         if changed.contains(0x3600) { snap.mono = readSwitch(AUD_SW_MONO) }
+        if changed.contains(0x3603) { snap.polarity = readSwitch(AUD_SW_POLARITY) }
+        if changed.contains(0x3607) { snap.talkback = readSwitch(AUD_SW_TALKBACK) }
         if changed.contains(0x360c) { snap.alt = readSwitch(AUD_SW_ALT) }
         if changed.contains(0x0a01) { snap.phonesMute = readPhonesMute() }
+        if changed.contains(0x3610) { snap.idButton = readIDButton() }
         // Anything we don't recognise: pull a full read forward.
-        let known: Set<Int> = [0x3612, 0x3604, 0x3605, 0x3600, 0x360c, 0x0a01, 0x0a02]
+        let known: Set<Int> = [0x3612, 0x3604, 0x3605, 0x3600, 0x360c, 0x0a01, 0x0a02, 0x3610, 0x3603, 0x3607]
         if !changed.isSubset(of: known) { lastFullRead = .distantPast }
         DispatchQueue.main.async { self.onSnapshot?(snap) }
     }
@@ -435,8 +534,19 @@ final class USBWriter: @unchecked Sendable {
         snap.phonesMute = readPhonesMute()
         snap.dim = readSwitch(AUD_SW_DIM)
         snap.mono = readSwitch(AUD_SW_MONO)
+        snap.polarity = readSwitch(AUD_SW_POLARITY)
+        snap.talkback = readSwitch(AUD_SW_TALKBACK)
         snap.alt = readSwitch(AUD_SW_ALT)
+        if !idButtonRead {
+            snap.idButton = readIDButton()
+            idButtonRead = snap.idButton != nil
+        }
         DispatchQueue.main.async { self.onSnapshot?(snap) }
+    }
+
+    private func readIDButton() -> Int? {
+        var v: Int32 = 0
+        return aud_read_id_button(&v) == 0 ? Int(v) : nil
     }
 
     private func readSwitch(_ which: Int32) -> Bool? {
@@ -450,6 +560,7 @@ final class USBWriter: @unchecked Sendable {
     }
 
     private func noteFailure() {
+        idButtonRead = false   // re-read after a reconnect
         pollFailures += 1
         if pollFailures >= 5 {  // unplugged, powered off, or not answering
             pollFailures = 0
@@ -472,7 +583,10 @@ final class USBWriter: @unchecked Sendable {
             case .mute: r = aud_set_monitor_switch(AUD_SW_MUTE, Int32(v))
             case .dim: r = aud_set_monitor_switch(AUD_SW_DIM, Int32(v))
             case .mono: r = aud_set_monitor_switch(AUD_SW_MONO, Int32(v))
+            case .polarity: r = aud_set_monitor_switch(AUD_SW_POLARITY, Int32(v))
+            case .talkback: r = aud_set_monitor_switch(AUD_SW_TALKBACK, Int32(v))
             case .alt: r = aud_set_monitor_switch(AUD_SW_ALT, Int32(v))
+            case .idButton: r = aud_set_id_button(Int32(v))
             }
             if r != 0 { status = r }
         }

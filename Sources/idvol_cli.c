@@ -2,7 +2,7 @@
 //
 //   idvol                          detect
 //   idvol <0.0-1.0> [phones]       set speaker (or headphone) level
-//   idvol dim|mono|alt|polarity|mute on|off
+//   idvol dim|mono|alt|polarity|mute|talkback on|off
 //
 //   Read-only exploration (never changes settings — but see the note on scan):
 //   idvol info                     dump USB interfaces, endpoints and audio entities
@@ -10,6 +10,7 @@
 //   idvol watch [ms]               poll the readable known controls, print changes
 //   idvol meters [log]             live view (or CSV log to stdout) of of the mixer memory blocks Audient's app polls
 //                                  (probably meters); prints min/max per value on Ctrl-C
+//   idvol idbutton [mono|monopol|dim|talkback|alt]   read or set the iD button's function
 //   idvol events                   live view of the iD's change queue (what the iD app polls)
 //   idvol phones-mute on|off       headphone mute
 //   idvol sniff                    listen to everything the iD sends on its HID interface,
@@ -263,6 +264,9 @@ static const char *describe(uint8_t cs, uint8_t cn, uint8_t e) {
     if (e == 0x36 && cs == 0x05) return "dim";
     if (e == 0x36 && cs == 0x00) return "mono";
     if (e == 0x36 && cs == 0x0c) return "alt";
+    if (e == 0x36 && cs == 0x03) return "polarity";
+    if (e == 0x36 && cs == 0x07) return "talkback";
+    if (e == 0x36 && cs == 0x10) return "iD button assignment";
     if (e == 0x0a && cs == 0x02 && (cn == 4 || cn == 5)) return "HEADPHONE volume";
     if (e == 0x0a && cs == 0x01 && (cn == 4 || cn == 5)) return "HEADPHONE mute";
     snprintf(buf, sizeof buf, "unknown");
@@ -528,15 +532,25 @@ static int cmd_scan(const uint8_t *ents, int n_ents, Range r) {
 // ---------------------------------------------------------------- main
 
 int main(int argc, char **argv) {
+    // Optional:  --iface N  (anywhere) — send requests to interface N instead of the spare one.
+    int iface = -1;
+    for (int i = 1; i < argc; i++)
+        if (strcmp(argv[i], "--iface") == 0 && i + 1 < argc) {
+            iface = atoi(argv[i + 1]);
+            for (int j = i; j + 2 <= argc; j++) argv[j] = argv[j + 2];
+            argc -= 2;
+            break;
+        }
     int pid = aud_connect();
+    if (iface >= 0) aud_set_interface_override(iface);
     if (pid < 0) {
         fprintf(stderr, "No Audient iD interface found.\n");
         return 1;
     }
     printf("Found %s (pid 0x%04x), control interface %d%s\n", aud_product_name(pid), pid, aud_control_interface(),
-           aud_has_spare_interface() ? " (spare DFU/vendor)" : " (fallback 0)");
+           iface >= 0 ? " (forced with --iface)" : aud_has_spare_interface() ? " (spare DFU/vendor)" : " (fallback 0)");
     if (argc < 2) {
-        printf("usage: idvol <0.0-1.0> [phones] | dim|mono|alt|polarity|mute on|off | phones-mute on|off | info | probe | watch [ms] | events | meters | sniff | scan [entity …]\n");
+        printf("usage: idvol <0.0-1.0> [phones] | dim|mono|alt|polarity|mute|talkback on|off | phones-mute on|off | info | probe | watch [ms] | idbutton [fn] | events | meters | sniff | scan [entity …]\n");
         return 0;
     }
 
@@ -544,11 +558,34 @@ int main(int argc, char **argv) {
     if (strcmp(argv[1], "probe") == 0) return cmd_probe();
     if (strcmp(argv[1], "sniff") == 0) return cmd_sniff();
     if (strcmp(argv[1], "events") == 0) return cmd_events();
+    if (strcmp(argv[1], "idbutton") == 0) {
+        static const struct { const char *name; int code; } kFns[] = {
+            {"mono", AUD_IDBTN_MONO}, {"monopol", AUD_IDBTN_MONO_POLARITY}, {"dim", AUD_IDBTN_DIM},
+            {"talkback", AUD_IDBTN_TALKBACK}, {"alt", AUD_IDBTN_ALT}};
+        if (argc > 2) {
+            for (int i = 0; i < 5; i++)
+                if (strcmp(argv[2], kFns[i].name) == 0) {
+                    int kr = aud_set_id_button(kFns[i].code);
+                    printf("iD button -> %s (0x%02x): %s (0x%08x)\n", kFns[i].name, kFns[i].code,
+                           kr == 0 ? "OK" : "FAILED", kr);
+                    return kr == 0 ? 0 : 2;
+                }
+            printf("unknown function — use mono, monopol, dim, talkback or alt\n");
+            return 1;
+        }
+        int v = -1;
+        int kr = aud_read_id_button(&v);
+        const char *name = "unknown";
+        for (int i = 0; i < 5; i++) if (kFns[i].code == v) name = kFns[i].name;
+        if (kr == 0) printf("iD button: %s (0x%02x)\n", name, v);
+        else printf("read failed (0x%08x)\n", kr);
+        return kr == 0 ? 0 : 2;
+    }
     if (strcmp(argv[1], "meters") == 0) return cmd_meters(argc > 2 && strcmp(argv[2], "log") == 0);
     if (strcmp(argv[1], "phones-mute") == 0) {
         int on = argc > 2 && (strcmp(argv[2], "on") == 0 || strcmp(argv[2], "1") == 0);
         int kr = aud_set_headphone_mute(on);
-        printf("phones mute %s: %s (0x%08x)\n", on ? "on" : "off", kr == 0 ? "OK" : "FAILED", kr);
+        printf("phones mute %s: %s via %s (0x%08x)\n", on ? "on" : "off", kr == 0 ? "OK" : "FAILED", aud_last_path(), kr);
         return kr == 0 ? 0 : 2;
     }
     if (strcmp(argv[1], "watch") == 0) return cmd_watch(argc > 2 ? atoi(argv[2]) : 100);
@@ -573,8 +610,8 @@ int main(int argc, char **argv) {
         return cmd_scan(ents, n, r);
     }
 
-    const char *names[] = {"mono", "dim", "alt", "polarity", "mute"};
-    for (int i = 0; i < 5; i++) {
+    const char *names[] = {"mono", "dim", "alt", "polarity", "mute", "talkback"};
+    for (int i = 0; i < 6; i++) {
         if (strcmp(argv[1], names[i]) == 0) {
             int on = argc > 2 && (strcmp(argv[2], "on") == 0 || strcmp(argv[2], "1") == 0);
             int kr = aud_set_monitor_switch(i, on);

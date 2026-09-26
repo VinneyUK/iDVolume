@@ -23,6 +23,8 @@
 - **Knob sync** — turn or press the iD's knob and the app follows (with the on-screen display)
 - **Monitor switches**: Mute, Dim, Mono, Alt speakers — read back from the interface
 - **Restores your level** when the iD powers on (it starts up silent)
+- **Choose what the iD button does** (Dim, Mono, Mono + Polarity, Alt, Talkback) — no need for
+  Audient's app
 - **Optional level meter in the menu bar** showing the speaker output
 - Talks to the interface directly over USB — audio keeps playing, nothing else to install
 - Launch at login
@@ -136,6 +138,9 @@ tccutil reset Accessibility com.vinneyuk.idvolume
 - The slider curve assumes standard USB Audio units (1/256 dB) over a 64 dB range —
   adjust `AUD_DEFAULT_FLOOR_DB` in `Sources/AudientUSB.h` if it feels off.
 - Quit Audient's own iD app while using this, so the two don't fight.
+- Speaker and headphone mute are independent: from the app you can mute both at once, and the
+  iD then flashes both LEDs. That's expected — on the hardware alone only the output the knob
+  is controlling can be muted, so you'd normally only see one.
 
 ## How it works
 
@@ -147,10 +152,20 @@ The iD's mixer is controlled with USB Audio class `CUR` requests — `SET` to ch
 | Speaker level | `0x36` | CS `0x12`, ch 0 — 1/256 dB, knob steps are 1 dB |
 | Speaker mute / Dim / Mono / Alt | `0x36` | CS `0x04` / `0x05` / `0x00` / `0x0c` |
 | Headphone trim / mute (iD14 MKII) | `0x0a` | CS `0x02` / `0x01`, ch 5 and 6 |
+| iD button assignment | `0x36` | CS `0x10`, 2 bytes: `00` Mono, `03` Mono+Polarity, `05` Dim, `07` Talkback, `0c` Alt. **Read with length 4** — a 2-byte read hangs the firmware |
 | Peak meters | `0x3c` | MEM request (`0x03`): offset 0 = 16 inputs (32 bytes), offset 1 = 6 outputs (12 bytes); linear, 65535 = 0 dBFS |
 | Change queue | `0x3e` | CS `0x06`, 4 bytes: `CS, ch-1, 00, entity`, or `ff … ff` when empty |
 
-Headphone channels and the change queue were found by capturing Audient's own app on Windows. iDVolume sends them
+Headphone channels and the change queue were found by capturing Audient's own app on Windows.
+
+Firmware links worth knowing: **Talkback also switches Dim** (talkback dims the monitors), and
+**Polarity forces Mono on** until Polarity is switched off. The iD button's LED only ever shows the
+function the button is assigned to, so iDVolume's *"iD LED follows app buttons"* option temporarily
+reassigns it (Polarity uses the Mono + Polarity assignment).
+
+Level controls are sent to the spare DFU interface (4). The front-panel switches — mute, Dim,
+Mono, Alt and headphone mute — are sent to interface 0, as Audient's app does: on the spare
+interface the iD applies them but doesn't update its front panel (no LED flash). iDVolume sends them
 through IOKit to the interface's spare DFU interface, so Core Audio keeps the audio
 interfaces and playback isn't interrupted. The volume keys are captured with a `CGEvent` tap.
 

@@ -16,7 +16,8 @@ struct PanelView: View {
                              help: state.muted ? "Unmute" : "Mute") { state.muted.toggle() }
                 LevelControl(title: "Headphones", symbol: "headphones",
                              value: $state.headphones, muted: state.headphonesMuted,
-                             help: state.headphonesMuted ? "Unmute headphones" : "Mute headphones") {
+                             help: state.headphonesMuted ? "Unmute headphones" : "Mute headphones",
+                             slashWhenMuted: true) {
                     state.headphonesMuted.toggle()
                 }
             }
@@ -25,10 +26,15 @@ struct PanelView: View {
             SectionDivider()
 
             SectionTitle("Monitor")
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 MonitorTile(title: "Mute", symbol: "speaker.slash.fill", isOn: $state.muted)
                 MonitorTile(title: "Dim", symbol: "speaker.wave.1.fill", isOn: $state.dim)
+                MonitorTile(title: "Talk", symbol: "mic.fill", isOn: $state.talkback)
+                    .help("Talkback (the iD also dims the monitors)")
+                MonitorTile(title: "Polarity", symbol: "plus.forwardslash.minus", isOn: $state.polarity)
                 MonitorTile(title: "Mono", symbol: "arrow.triangle.merge", isOn: $state.mono)
+                    .disabled(state.polarity)   // the iD holds Mono on while Polarity is on
+                    .help(state.polarity ? "Mono stays on while Polarity is on" : "Mono")
                 MonitorTile(title: "Alt", symbol: "hifispeaker.2.fill", isOn: $state.alt)
             }
             .disabled(!state.isConnected)
@@ -37,6 +43,22 @@ struct PanelView: View {
 
             SectionTitle("Settings")
             VStack(spacing: 12) {
+                HStack {
+                    Text("iD button").font(.system(size: 13))
+                    Spacer(minLength: 12)
+                    Picker("", selection: Binding(
+                        get: { state.idButton ?? .dim },
+                        set: { state.idButton = $0 })
+                    ) {
+                        ForEach(IDButtonFunction.allCases) { f in Text(f.title).tag(f) }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .controlSize(.small)
+                    .fixedSize()
+                    .disabled(state.idButton == nil)
+                }
+                SettingRow(title: "iD LED follows app buttons", isOn: $state.idLedFollows, indented: true)
                 SettingRow(title: "Keyboard volume keys", isOn: $state.volumeKeysEnabled)
                 SettingRow(title: "Only when iD is the output", isOn: $state.keysOnlyWhenAudient, indented: true)
                     .disabled(!state.volumeKeysEnabled)
@@ -56,7 +78,7 @@ struct PanelView: View {
                     .pickerStyle(.segmented)
                     .labelsHidden()
                     .controlSize(.small)
-                    .frame(width: 108)
+                    .fixedSize()
                 }
                 SettingRow(title: "Show level in menu bar", isOn: $state.showLevelInMenuBar)
                 SettingRow(title: "Meter in menu bar", isOn: $state.menuBarMeter)
@@ -68,7 +90,7 @@ struct PanelView: View {
             footer
         }
         .padding(16)
-        .frame(width: 300)
+        .frame(width: 320)
     }
 
     private var header: some View {
@@ -138,6 +160,8 @@ private struct LevelControl: View {
     @Binding var value: Double
     let muted: Bool
     let help: String?
+    /// Draw a slash over the icon when muted (for symbols with no built-in ".slash" variant).
+    var slashWhenMuted = false
     let iconAction: (() -> Void)?
 
     var body: some View {
@@ -152,16 +176,40 @@ private struct LevelControl: View {
             }
             HStack(spacing: 10) {
                 Button { iconAction?() } label: {
-                    Image(systemName: symbol)
-                        .font(.system(size: 13))
-                        .frame(width: 20, height: 20)
-                        .contentShape(Rectangle())
+                    ZStack {
+                        Image(systemName: symbol)
+                            .font(.system(size: 13))
+                        if slashWhenMuted && muted { MuteSlash() }
+                    }
+                    .compositingGroup()
+                    .foregroundStyle(slashWhenMuted && muted ? Color.secondary : Color.primary)
+                    .frame(width: 20, height: 20)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .allowsHitTesting(iconAction != nil)
                 .help(help ?? "")
                 Slider(value: $value, in: 0...1)
                     .controlSize(.small)
+            }
+        }
+    }
+}
+
+/// Diagonal slash like SF Symbols' ".slash" variants: a thin line with a gap cut
+/// into the icon either side so it stays readable at small sizes.
+private struct MuteSlash: View {
+    var body: some View {
+        GeometryReader { geo in
+            let inset: CGFloat = 3
+            let path = Path { p in
+                p.move(to: CGPoint(x: inset, y: inset))
+                p.addLine(to: CGPoint(x: geo.size.width - inset, y: geo.size.height - inset))
+            }
+            ZStack {
+                path.stroke(style: StrokeStyle(lineWidth: 3.6, lineCap: .round))
+                    .blendMode(.destinationOut)          // the gap
+                path.stroke(style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
             }
         }
     }
@@ -180,7 +228,10 @@ private struct MonitorTile: View {
                 Image(systemName: symbol)
                     .font(.system(size: 14, weight: .medium))
                     .frame(height: 18)
-                Text(title).font(.system(size: 11, weight: .medium))
+                Text(title)
+                    .font(.system(size: 10, weight: .medium))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
             }
             .frame(maxWidth: .infinity)
             .frame(height: 54)
@@ -207,14 +258,12 @@ private struct SettingRow: View {
         HStack {
             Text(title)
                 .font(.system(size: 13))
-                .foregroundStyle(indented ? Color.secondary : Color.primary)
             Spacer(minLength: 12)
             Toggle("", isOn: $isOn)
                 .labelsHidden()
                 .toggleStyle(.switch)
                 .controlSize(.mini)
         }
-        .padding(.leading, indented ? 14 : 0)
         .opacity(isEnabled ? 1 : 0.45)
     }
 }
@@ -233,6 +282,5 @@ private struct NoticeRow: View {
             Spacer(minLength: 8)
             Button(action, action: perform).controlSize(.small)
         }
-        .padding(.leading, 14)
     }
 }

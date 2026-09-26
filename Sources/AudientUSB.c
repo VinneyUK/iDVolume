@@ -13,6 +13,7 @@ static IOUSBDeviceInterface182 **g_dev = NULL;
 static io_service_t g_ctl_service = IO_OBJECT_NULL;   // spare DFU/vendor interface
 static IOUSBInterfaceInterface190 **g_intf = NULL;     // opened lazily, fallback path only
 static int g_iface = 0;
+static int g_iface_override = -1;
 static int g_has_spare = 0;
 static int g_pid = -1;
 static const char *g_last_path = "none";
@@ -147,7 +148,8 @@ int aud_probe(void) {
 }
 
 int aud_current_pid(void) { return g_pid; }
-int aud_control_interface(void) { return g_iface; }
+int aud_control_interface(void) { return g_iface_override >= 0 ? g_iface_override : g_iface; }
+void aud_set_interface_override(int iface) { g_iface_override = iface; }
 int aud_has_spare_interface(void) { return g_has_spare; }
 const char *aud_last_path(void) { return g_last_path; }
 
@@ -171,7 +173,7 @@ static int open_ctl_interface(void) {
 }
 
 // Class-specific SET_CUR, host->device, interface recipient (bmRequestType 0x21).
-static IOReturn send_request(uint16_t wValue, uint8_t entity, uint8_t *data, uint16_t len) {
+static IOReturn send_request_on(int iface, uint16_t wValue, uint8_t entity, uint8_t *data, uint16_t len) {
     if (!g_dev && aud_connect() < 0) return kIOReturnNoDevice;
 
     IOUSBDevRequestTO req;
@@ -179,7 +181,7 @@ static IOReturn send_request(uint16_t wValue, uint8_t entity, uint8_t *data, uin
     req.bmRequestType = USBmakebmRequestType(kUSBOut, kUSBClass, kUSBInterface);
     req.bRequest = 0x01;
     req.wValue = wValue;
-    req.wIndex = (uint16_t)((entity << 8) | (g_iface & 0xFF));
+    req.wIndex = (uint16_t)((entity << 8) | ((iface >= 0 ? iface : aud_control_interface()) & 0xFF));
     req.wLength = len;
     req.pData = data;
     req.noDataTimeout = 500;
@@ -204,11 +206,15 @@ static IOReturn send_request(uint16_t wValue, uint8_t entity, uint8_t *data, uin
     return kr;
 }
 
-static IOReturn send_bytes_retry(uint16_t wValue, uint8_t entity, uint8_t *data, uint16_t len) {
-    IOReturn kr = send_request(wValue, entity, data, len);
+static IOReturn send_bytes_retry_on(int iface, uint16_t wValue, uint8_t entity, uint8_t *data, uint16_t len) {
+    IOReturn kr = send_request_on(iface, wValue, entity, data, len);
     if (kr != kIOReturnSuccess && aud_connect() >= 0)  // e.g. unplugged and replugged
-        kr = send_request(wValue, entity, data, len);
+        kr = send_request_on(iface, wValue, entity, data, len);
     return kr;
+}
+
+static IOReturn send_bytes_retry(uint16_t wValue, uint8_t entity, uint8_t *data, uint16_t len) {
+    return send_bytes_retry_on(-1, wValue, entity, data, len);
 }
 
 static IOReturn send_retry(uint16_t wValue, uint8_t entity, int16_t raw) {
@@ -228,23 +234,38 @@ int aud_set_headphone_raw(int16_t raw) {
 
 // Selectors from MixiD's masterVals, on the monitor entity (0x36).
 static const uint16_t kSwitchSelectors[] = {0x0000 /* mono */, 0x0500 /* dim */, 0x0c00 /* alt */,
-                                            0x0300 /* polarity */, 0x0400 /* mute */};
+                                            0x0300 /* polarity */, 0x0400 /* mute */, 0x0700 /* talkback */};
 #define N_SWITCHES (int)(sizeof(kSwitchSelectors) / sizeof(kSwitchSelectors[0]))
+
+// Front-panel switches are written AND read on interface 0, like Audient's app. On the spare
+// interface the iD applies them but doesn't update its front panel (no LED change/flash), and
+// the headphone controls keep a separate value per interface — so reading them back on the
+// spare interface returns a stale value.
+static int panel_iface(void) { return g_iface_override >= 0 ? g_iface_override : 0; }
 
 int aud_set_monitor_switch(int which, int on) {
     if (which < 0 || which >= N_SWITCHES) return (int)kIOReturnBadArgument;
     uint8_t b = on ? 1 : 0;
-    return (int)send_bytes_retry(kSwitchSelectors[which], 0x36, &b, 1);
+    return (int)send_bytes_retry_on(panel_iface(), kSwitchSelectors[which], 0x36, &b, 1);
 }
 
+static int aud_read_on(int iface, uint8_t request, uint16_t wValue, uint8_t entity, uint8_t *buf, uint16_t len,
+                       uint32_t timeout_ms);
+
+
 int aud_read(uint8_t request, uint16_t wValue, uint8_t entity, uint8_t *buf, uint16_t len, uint32_t timeout_ms) {
+    return aud_read_on(-1, request, wValue, entity, buf, len, timeout_ms);
+}
+
+static int aud_read_on(int iface, uint8_t request, uint16_t wValue, uint8_t entity, uint8_t *buf, uint16_t len,
+                       uint32_t timeout_ms) {
     if (!g_dev && aud_connect() < 0) return (int)kIOReturnNoDevice;
     IOUSBDevRequestTO req;
     memset(&req, 0, sizeof(req));
     req.bmRequestType = USBmakebmRequestType(kUSBIn, kUSBClass, kUSBInterface);
     req.bRequest = request;
     req.wValue = wValue;
-    req.wIndex = (uint16_t)((entity << 8) | (g_iface & 0xFF));
+    req.wIndex = (uint16_t)((entity << 8) | ((iface >= 0 ? iface : aud_control_interface()) & 0xFF));
     req.wLength = len;
     req.pData = buf;
     req.noDataTimeout = timeout_ms;
@@ -252,6 +273,19 @@ int aud_read(uint8_t request, uint16_t wValue, uint8_t entity, uint8_t *buf, uin
     IOReturn kr = (*g_dev)->DeviceRequestTO(g_dev, &req);
     if (kr != kIOReturnSuccess) return (int)kr;
     return (int)req.wLenDone;
+}
+
+int aud_set_id_button(int function) {
+    uint8_t b[2] = {(uint8_t)(function & 0xFF), 0};
+    return (int)send_bytes_retry_on(panel_iface(), 0x1000, 0x36, b, 2);
+}
+
+int aud_read_id_button(int *out) {
+    uint8_t b[4] = {0};
+    int n = aud_read_on(panel_iface(), 0x01, 0x1000, 0x36, b, 4, 300);   // 4 bytes — see header
+    if (n < 2) return n < 0 ? n : (int)kIOReturnUnderrun;
+    *out = b[0] | (b[1] << 8);
+    return 0;
 }
 
 int aud_read_speaker_raw(int16_t *out) {
@@ -265,22 +299,24 @@ int aud_read_speaker_raw(int16_t *out) {
 int aud_read_monitor_switch(int which, int *out) {
     if (which < 0 || which >= N_SWITCHES) return (int)kIOReturnBadArgument;
     uint8_t b = 0;
-    int n = aud_read(0x01, kSwitchSelectors[which], 0x36, &b, 1, 200);
+    int n = aud_read_on(panel_iface(), 0x01, kSwitchSelectors[which], 0x36, &b, 1, 200);
     if (n != 1) return n < 0 ? n : (int)kIOReturnUnderrun;
     *out = b;
     return 0;
 }
 
+// Headphone mute on interface 0 = the real hardware headphone mute (LED flashes), the same
+// switch as pressing the knob in headphone mode.
 int aud_set_headphone_mute(int on) {
     uint8_t b = on ? 1 : 0;
-    IOReturn a = send_bytes_retry(0x0105, 0x0a, &b, 1);
-    IOReturn d = send_bytes_retry(0x0106, 0x0a, &b, 1);
+    IOReturn a = send_bytes_retry_on(panel_iface(), 0x0105, 0x0a, &b, 1);
+    IOReturn d = send_bytes_retry_on(panel_iface(), 0x0106, 0x0a, &b, 1);
     return (int)(a != kIOReturnSuccess ? a : d);
 }
 
 int aud_read_headphone_mute(int *out) {
     uint8_t b = 0;
-    int n = aud_read(0x01, 0x0105, 0x0a, &b, 1, 200);
+    int n = aud_read_on(panel_iface(), 0x01, 0x0105, 0x0a, &b, 1, 200);
     if (n != 1) return n < 0 ? n : (int)kIOReturnUnderrun;
     *out = b;
     return 0;

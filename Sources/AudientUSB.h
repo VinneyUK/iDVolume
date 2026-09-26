@@ -15,6 +15,8 @@ void aud_disconnect(void);
 
 int aud_current_pid(void);
 int aud_control_interface(void);
+// Force the interface number used in wIndex (-1 = automatic: the spare DFU interface).
+void aud_set_interface_override(int iface);
 int aud_has_spare_interface(void);
 const char *aud_product_name(int pid);
 const char *aud_last_path(void);
@@ -33,7 +35,20 @@ int aud_set_headphone_raw(int16_t raw);
 #define AUD_SW_ALT 2
 #define AUD_SW_POLARITY 3
 #define AUD_SW_MUTE 4       // hardware speaker mute (what pressing the knob toggles)
+#define AUD_SW_TALKBACK 5   // the iD also switches Dim with it
 int aud_set_monitor_switch(int which, int on);
+
+// iD button assignment (entity 0x36, CS 0x10). Value = code of the function it controls:
+// 0x00 Mono, 0x03 Mono + Polarity, 0x05 Dim, 0x07 Talkback, 0x0c Alt.
+// Read EXACTLY as Audient's app does (4 bytes, interface 0): a 2-byte read of this
+// control hangs the firmware until power-cycled.
+#define AUD_IDBTN_MONO 0x00
+#define AUD_IDBTN_MONO_POLARITY 0x03
+#define AUD_IDBTN_DIM 0x05
+#define AUD_IDBTN_TALKBACK 0x07
+#define AUD_IDBTN_ALT 0x0c
+int aud_set_id_button(int function);
+int aud_read_id_button(int *out);
 
 // Read-back (confirmed on iD14 MKII: live, follows the hardware knob and buttons).
 // 0 on success, otherwise an error code.
