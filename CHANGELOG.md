@@ -2,10 +2,14 @@
 
 All notable changes to iDVolume. Versions are listed newest first.
 
+## 1.7.4
+
+- **Dark knobs and faders in the dark finish**: black anodised caps with a light pointer, instead of white metal.
+- Showcase images updated.
+
 ## 1.7.3
 
 - **Green LEDs.** "On" indicators on the keys (and the glowing labels in Illuminated keys) are now green. Orange is kept only for the level scale and the update badge.
-- **Dark knobs and faders in the dark finish** — black anodised caps with a light pointer, instead of white metal.
 - **Mute is remembered when you switch outputs.** In Console strip, a muted output keeps flashing red even when the knob is controlling the other one. Compact and Ring focus show a flashing red dot on the Speakers/Phones selector for any muted output.
 
 ## 1.7.2

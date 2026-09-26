@@ -2,16 +2,27 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleName</key><string>iDVolume</string>
-    <key>CFBundleDisplayName</key><string>iDVolume</string>
-    <key>CFBundleIdentifier</key><string>com.vinneyuk.idvolume</string>
-    <key>CFBundleExecutable</key><string>iDVolume</string>
-    <key>CFBundleIconFile</key><string>AppIcon</string>
-    <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>1.7.3</string>
-    <key>CFBundleVersion</key><string>173</string>
-    <key>LSMinimumSystemVersion</key><string>13.0</string>
-    <key>LSUIElement</key><true/>
-    <key>NSHumanReadableCopyright</key><string>USB protocol from MixiD by TheOnlyJoey (MIT)</string>
+	<key>CFBundleDisplayName</key>
+	<string>iDVolume</string>
+	<key>CFBundleExecutable</key>
+	<string>iDVolume</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.vinneyuk.idvolume</string>
+	<key>CFBundleName</key>
+	<string>iDVolume</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.7.4</string>
+	<key>CFBundleVersion</key>
+	<string>174</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>13.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>USB protocol from MixiD by TheOnlyJoey (MIT)</string>
 </dict>
 </plist>
