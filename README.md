@@ -39,6 +39,8 @@
 - Talks to the interface directly over USB — audio keeps playing, nothing else to install
 - Launch at login
 
+See the [changelog](CHANGELOG.md) for what's new in each version.
+
 ## Compatibility
 
 | | |

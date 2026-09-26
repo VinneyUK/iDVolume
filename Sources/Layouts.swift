@@ -86,7 +86,8 @@ struct ConsoleStripLayout: View {
 
     /// Click to select which output the knob controls; click the selected one again to mute it.
     private func outputKey(_ t: KnobTarget, _ label: String, _ icon: String, muted: Bool) -> some View {
-        HWKey(label: label, icon: icon, isOn: state.knobTarget == t, led: muted ? Skin.red : Skin.amber, flash: muted) {
+        HWKey(label: label, icon: icon, isOn: state.knobTarget == t,
+              indicator: muted ? Skin.red : (state.knobTarget == t ? Skin.ledOn : nil), flash: muted) {
             if state.knobTarget == t {
                 if t == .speakers { state.muted.toggle() } else { state.headphonesMuted.toggle() }
             } else {
@@ -201,7 +202,8 @@ struct RingFocusLayout: View {
     var body: some View {
         VStack(spacing: 0) {
             PanelHeader()
-            HWSegmented(options: [SegOption(KnobTarget.speakers, "Speakers", icon: "speaker.wave.2"), SegOption(KnobTarget.headphones, "Phones", icon: "headphones")],
+            HWSegmented(options: [SegOption(KnobTarget.speakers, "Speakers", icon: "speaker.wave.2", alert: state.muted),
+                                  SegOption(KnobTarget.headphones, "Phones", icon: "headphones", alert: state.headphonesMuted)],
                         selection: $state.knobTarget)
             ZStack(alignment: .bottom) {
                 HWKnob(value: $state.targetLevel, size: 196, ring: .segments, segments: 31, dimmed: state.targetMuted,
@@ -227,7 +229,7 @@ struct RingFocusLayout: View {
     private func ledSwitch(_ label: String, _ on: Bool, _ action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(spacing: 6) {
-                LEDView(color: on ? Skin.amber : nil, size: 9)
+                LEDView(color: on ? Skin.ledOn : nil, size: 9)
                 Text(label.uppercased()).font(Skin.silkFont(11)).tracking(1.4).foregroundStyle(on ? Skin.ink : Skin.silkDim)
             }
             .padding(4)
@@ -307,7 +309,9 @@ struct CompactLayout: View {
                 HWSlider(value: $state.targetLevel, thin: true)
                 Readout(text: state.targetMuted ? "—" : dBText(state.targetLevel), size: 14).frame(width: 38, alignment: .trailing)
             }
-            HWSegmented(options: [SegOption(KnobTarget.speakers, "Speakers"), SegOption(KnobTarget.headphones, "Phones")], selection: $state.knobTarget)
+            HWSegmented(options: [SegOption(KnobTarget.speakers, "Speakers", alert: state.muted),
+                                  SegOption(KnobTarget.headphones, "Phones", alert: state.headphonesMuted)],
+                        selection: $state.knobTarget)
             SwitchGrid()
         }
         .frame(width: 228)

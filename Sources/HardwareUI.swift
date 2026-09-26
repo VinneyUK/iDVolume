@@ -38,7 +38,8 @@ enum Skin {
     static let keyDark   = pair(0x3f4247, 0x5a5e65)     // selected / "on" fill
     static let brushLine = pair(0xffffff, 0xffffff, lightAlpha: 0.28, darkAlpha: 0.022)
 
-    static let amber = Color(hex: 0xf0a020)
+    static let amber = Color(hex: 0xf0a020)      // level scale + update badge only
+    static let ledOn = Color(hex: 0x2fd46e)      // "on" LEDs and backlit labels
     static let red = Color(hex: 0xe5483a)
     static let green = Color(hex: 0x2fae66)
 
@@ -200,7 +201,9 @@ struct HWKey: View {
     let label: String
     var icon: String? = nil
     let isOn: Bool
-    var led: Color? = Skin.amber
+    var led: Color? = Skin.ledOn
+    /// Drive the LED independently of `isOn` (e.g. an output that's muted but not selected).
+    var indicator: Color? = nil
     var flash = false
     var backlit = false
     var mutedStyle = false          // red fill when on (mute keys in the backlit layout)
@@ -229,14 +232,17 @@ struct HWKey: View {
     }
 
     @ViewBuilder private var content: some View {
-        if !backlit, let led { LEDView(color: isOn ? led : nil, flash: isOn && flash) }
+        if !backlit, let led {
+            if let indicator { LEDView(color: indicator, flash: flash) }
+            else { LEDView(color: isOn ? led : nil, flash: isOn && flash) }
+        }
         if let icon { Image(systemName: icon).font(.system(size: 12, weight: .medium)) }
         Text(label.uppercased())
             .font(Skin.silkFont(11))
             .tracking(1.2)
             .lineLimit(1)
             .minimumScaleFactor(0.75)
-            .shadow(color: backlit && isOn && !mutedStyle ? Skin.amber.opacity(0.7) : .clear, radius: 4)
+            .shadow(color: backlit && isOn && !mutedStyle ? Skin.ledOn.opacity(0.7) : .clear, radius: 4)
     }
 
     @ViewBuilder private func stack<C: View>(_ c: C) -> some View {
@@ -250,7 +256,7 @@ struct HWKey: View {
 
     private var foreground: Color {
         guard isOn else { return Skin.silk }
-        return backlit && !mutedStyle ? Skin.amber : .white
+        return backlit && !mutedStyle ? Skin.ledOn : .white
     }
 }
 
@@ -258,7 +264,10 @@ struct SegOption<T: Hashable> {
     let value: T
     let label: String
     var icon: String? = nil
-    init(_ value: T, _ label: String, icon: String? = nil) { self.value = value; self.label = label; self.icon = icon }
+    var alert = false          // flashing red dot, e.g. this output is muted
+    init(_ value: T, _ label: String, icon: String? = nil, alert: Bool = false) {
+        self.value = value; self.label = label; self.icon = icon; self.alert = alert
+    }
 }
 
 /// Two- or three-way selector in a recessed groove.
@@ -271,6 +280,7 @@ struct HWSegmented<T: Hashable>: View {
                 let o = options[i]
                 Button { selection = o.value } label: {
                     HStack(spacing: 6) {
+                        if o.alert { LEDView(color: Skin.red, flash: true, size: 6) }
                         if let icon = o.icon { Image(systemName: icon).font(.system(size: 11)) }
                         Text(o.label.uppercased()).font(Skin.silkFont(11)).tracking(1.2)
                     }

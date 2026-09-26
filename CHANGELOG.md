@@ -1,0 +1,43 @@
+# Changelog
+
+All notable changes to iDVolume. Versions are listed newest first.
+
+## 1.7.3
+
+- **Green LEDs.** "On" indicators on the keys (and the glowing labels in Illuminated keys) are now green. Orange is kept only for the level scale and the update badge.
+- **Mute is remembered when you switch outputs.** In Console strip, a muted output keeps flashing red even when the knob is controlling the other one. Compact and Ring focus show a flashing red dot on the Speakers/Phones selector for any muted output.
+
+## 1.7.2
+
+- Scrolling over the menu bar icon, or over any knob or fader in the panel, moves in whole 1 dB steps like the hardware knob. One wheel notch is 1 dB; trackpad "coasting" is ignored, so a flick can't jump to full volume.
+- No focus box around knobs and faders when you click them.
+- Removed debug logging.
+
+## 1.7.1
+
+- Scrolling over the menu bar icon changes the volume again.
+
+## 1.7
+
+- **Ten panel layouts** in a hardware-style skin — knobs, faders and LED keys. Choose one in Settings → Panel.
+- **Settings window**: open it from the gear, with ⌘, or by right-clicking the menu bar icon (which also has Reconnect and Quit).
+- **Light, Dark or Auto** appearance.
+- **Automatic updates** from GitHub Releases: optional daily check, checksum-verified download, install and restart. Settings → Updates.
+
+## 1.6.2
+
+- Front-panel switches (Mute, Dim, Mono, Alt, headphone mute) now update the iD's LEDs, like Audient's own app.
+- Headphone mute is the real hardware mute, and follows the knob press in headphone mode.
+- **iD button** setting: choose what the iD button does (Dim, Mono, Mono + Polarity, Alt, Talkback).
+- Option for the iD LED to follow the app's buttons.
+- Polarity and Talkback controls.
+
+## 1.6.1
+
+- Downloadable universal app (Apple Silicon and Intel) on the Releases page.
+- Guide to notarising the app yourself.
+- Optional level meter in the menu bar.
+
+## 1.5
+
+- First release: speaker level follows the hardware knob, hardware mute, Dim / Mono / Alt read back from the interface, level restored at power-on, keyboard volume keys, scroll over the icon, on-screen display.
