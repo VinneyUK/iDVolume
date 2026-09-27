@@ -6,10 +6,15 @@ struct PanelView: View {
 
     var body: some View {
         layout
+            .disabled(state.unsupportedModel)
+            .opacity(state.unsupportedModel ? 0.35 : 1)
             .padding(16)
             .background(PlateBackground(brushed: brushed))
             .overlay(alignment: .top) {
                 if !state.isConnected { disconnectedBanner }
+            }
+            .overlay {
+                if state.unsupportedModel { unsupportedNotice }
             }
             .overlay(alignment: .bottom) {
                 if state.isConnected, let problem = state.keyProblem { keysBanner(problem.message) }
@@ -34,6 +39,23 @@ struct PanelView: View {
 
     private var brushed: Bool {
         [.consoleStrip, .faceplate, .rackUnit].contains(state.panelLayout)
+    }
+
+    /// Models other than the iD14 MKII: iDVolume sends them nothing.
+    private var unsupportedNotice: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "exclamationmark.shield").font(.system(size: 26)).foregroundStyle(.orange)
+            Text("\(state.deviceName ?? "This interface") isn't supported yet")
+                .font(.system(size: 14, weight: .semibold)).multilineTextAlignment(.center)
+            Text("iDVolume currently works with the iD14 MKII only. To keep your interface safe, it sends it no commands at all.")
+                .font(.system(size: 12)).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+            Button("Send Details to the Developer…") { state.sendUnsupportedReport() }.controlSize(.small)
+        }
+        .foregroundStyle(Skin.ink)
+        .padding(18)
+        .frame(maxWidth: 230)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Skin.plateTop))
+        .shadow(color: .black.opacity(0.25), radius: 10, y: 3)
     }
 
     private var disconnectedBanner: some View {

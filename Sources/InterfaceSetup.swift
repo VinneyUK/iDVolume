@@ -663,98 +663,55 @@ struct ModeChoice: View {
 
 struct SetupTab: View {
     @EnvironmentObject var state: AppState
-    @State private var running: InterfaceSetup?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 14) {
             if !state.isConnected {
-                Text("Connect your iD interface to set it up.").font(.system(size: 13))
+                Text("Connect your iD interface.").font(.system(size: 13))
+            } else if state.modelIsVerified {
+                Label("Your \(state.deviceName ?? "iD14 MKII") is fully supported — there's nothing to set up.",
+                      systemImage: "checkmark.seal.fill")
+                    .font(.system(size: 13))
             } else {
-                Text("Which interface do you have?").font(.system(size: 15, weight: .semibold))
-                ModeChoice(title: "iD14 MKII",
-                           detail: "Full features: the app follows the hardware knob and buttons, meters, iD button setting and front-panel LEDs.",
-                           icon: "checkmark.seal", selected: state.interfaceMode == .mk2) { choose(.mk2) }
-                ModeChoice(title: "Another iD model",
-                           detail: "Compatibility mode: level and switches, with nothing read back from the interface. A short, safe setup wizard finds out what works on yours.",
-                           icon: "wand.and.stars", selected: state.interfaceMode == .compatibility) { choose(.compatibility) }
-                Text("Detected: \(state.deviceName ?? "iD interface")\(state.modelIsVerified ? "" : " · full features have only been tested on the iD14 MKII")")
-                    .font(.system(size: 11)).foregroundStyle(Skin.silkDim)
-
-                if state.interfaceMode == .compatibility {
-                    Divider()
-                    if let setup = running {
-                        InterfaceSetupView(setup: setup) {
-                            running = nil
-                            state.reapplyProfile()
-                        }
-                    } else {
-                        wizardStatus
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "exclamationmark.shield.fill").font(.system(size: 20)).foregroundStyle(.orange)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("\(state.deviceName ?? "This interface") isn't supported yet")
+                            .font(.system(size: 14, weight: .semibold))
+                        Text("iDVolume currently works with the iD14 MKII only. Commands that are safe on the MKII can lock up other models (the original iD14 treats them as the start of a firmware update), so iDVolume sends this interface no commands at all.")
+                            .font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
+                        Text("Sending its details (read from its standard USB description; nothing is sent to it) helps work out safe support in future.")
+                            .font(.system(size: 12)).foregroundStyle(Skin.silk).fixedSize(horizontal: false, vertical: true)
+                        Button("Send Details to the Developer…") { state.sendUnsupportedReport() }.padding(.top, 4)
                     }
                 }
             }
         }
         .foregroundStyle(Skin.ink)
-        .onAppear { takeRequest() }
-        .onChange(of: state.requestSetup) { _ in takeRequest() }
-    }
-
-    private func choose(_ mode: AppState.InterfaceMode) {
-        guard mode != state.interfaceMode || state.chosenMode == nil else { return }
-        running = nil
-        state.setInterfaceMode(mode)
-        if mode == .compatibility && state.modelProfile == nil { start() }   // go straight into the wizard
-    }
-
-    private var wizardStatus: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Setup wizard").font(.system(size: 13, weight: .semibold))
-            if let p = state.modelProfile {
-                ForEach(p.summaryLines, id: \.self) { Text("• " + $0).font(.system(size: 12)).foregroundStyle(Skin.silk) }
-            } else {
-                Text("Not run yet. It takes about 2 minutes and it's safe: it only sends commands and never reads from your interface.")
-                    .font(.system(size: 12)).foregroundStyle(Skin.silk).fixedSize(horizontal: false, vertical: true)
-            }
-            HStack {
-                Button(state.modelProfile == nil ? "Start Setup" : "Run Setup Again") { start() }
-                if let p = state.modelProfile, let url = p.reportURL() {
-                    Button("Send Results…") { NSWorkspace.shared.open(url) }
-                    Button("Forget Results") { state.forgetProfile() }
-                }
-            }
-        }
-    }
-
-    private func start() { running = InterfaceSetup(state: state) }
-
-    private func takeRequest() {
-        guard state.requestSetup else { return }
-        state.requestSetup = false
-        if state.interfaceMode == .compatibility { start() }
     }
 }
 
-// MARK: - First connection of an interface that isn't an iD14 MKII
+// MARK: - First connection of an interface that isn't supported
 
 struct WelcomeView: View {
     @EnvironmentObject var state: AppState
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Which interface do you have?").font(.system(size: 16, weight: .semibold))
-                Text("Detected: \(state.deviceName ?? "an iD interface")").font(.system(size: 12)).foregroundStyle(Skin.silkDim)
+            HStack(spacing: 10) {
+                Image(systemName: "exclamationmark.shield.fill").font(.system(size: 22)).foregroundStyle(.orange)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(state.deviceName ?? "This interface") isn't supported yet").font(.system(size: 16, weight: .semibold))
+                    Text("iDVolume currently works with the iD14 MKII only").font(.system(size: 12)).foregroundStyle(Skin.silkDim)
+                }
             }
-            ModeChoice(title: "iD14 MKII",
-                       detail: "Full features: the app follows the hardware knob and buttons, meters, iD button setting and front-panel LEDs.",
-                       icon: "checkmark.seal", selected: false) { state.welcomeChoice(.mk2) }
-            ModeChoice(title: "Another iD model",
-                       detail: "Compatibility mode, then a short, safe setup wizard that finds out what works on yours. Recommended for anything that isn't an iD14 MKII.",
-                       icon: "wand.and.stars", selected: false) { state.welcomeChoice(.compatibility) }
+            Text("To keep your interface safe, iDVolume won't send it any commands, so its controls are switched off. Sending its details (read-only) helps work out support for it in future.")
+                .font(.system(size: 13)).fixedSize(horizontal: false, vertical: true)
             HStack {
+                Button("Send Details to the Developer…") { state.welcomeChoice(.sendDetails) }
                 Spacer()
-                Button("Decide Later") { state.welcomeChoice(.later) }
+                Button("OK") { state.welcomeChoice(.ok) }.keyboardShortcut(.defaultAction)
             }
-            Text("You can change this at any time in Settings → Setup.").font(.system(size: 11)).foregroundStyle(Skin.silkDim)
         }
         .padding(22)
         .frame(width: 440)

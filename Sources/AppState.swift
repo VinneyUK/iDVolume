@@ -159,12 +159,15 @@ final class AppState: ObservableObject {
     @Published var deviceName: String?
     @Published private(set) var devicePID: Int32?
     var modelIsVerified: Bool { devicePID.map { aud_model_fully_supported($0) != 0 } ?? true }
+    /// Connected, but a model iDVolume doesn't support: nothing is sent to it at all.
+    var unsupportedModel: Bool { isConnected && !modelIsVerified }
 
     /// The user's answer in Settings → Setup: "I have an iD14 MKII" or "another iD model".
     enum InterfaceMode: String { case mk2, compatibility }
     /// Saved per interface (USB product ID). nil = not chosen yet → from the USB ID.
     @Published private(set) var chosenMode: InterfaceMode?
-    var interfaceMode: InterfaceMode { chosenMode ?? (modelIsVerified ? .mk2 : .compatibility) }
+    /// The MKII always gets full features; everything else is refused (see aud_commands_blocked).
+    var interfaceMode: InterfaceMode { modelIsVerified ? .mk2 : .compatibility }
     /// Compatibility mode: commands only, nothing is read back.
     var safeMode: Bool { devicePID != nil && interfaceMode == .compatibility }
 
@@ -183,22 +186,36 @@ final class AppState: ObservableObject {
     @Published var showWelcome = false
     @Published var requestSetup = false
 
-    enum WelcomeChoice { case mk2, compatibility, later }
+    enum WelcomeChoice { case ok, sendDetails }
 
     func welcomeChoice(_ choice: WelcomeChoice) {
-        if let pid = devicePID { defaults.set(true, forKey: "welcomeShown.\(pid)") }
+        if let pid = devicePID { defaults.set(true, forKey: "unsupportedShown.\(pid)") }
         showWelcome = false
-        switch choice {
-        case .mk2:
-            setInterfaceMode(.mk2)
-        case .compatibility:
-            setInterfaceMode(.compatibility)
-            settingsTab = .setup
-            requestSetup = true
-            openSettings?()
-        case .later:
-            break
+        if choice == .sendDetails { sendUnsupportedReport() }
+    }
+
+    /// A GitHub issue with the model's USB description (read-only, safe on any device) so
+    /// support can be looked into. Nothing is sent to the interface.
+    func sendUnsupportedReport() {
+        let pid = devicePID ?? -1
+        var buf = [AudEntity](repeating: AudEntity(), count: 64)
+        let n = Int(aud_list_audio_entities(&buf, 64))
+        let release = aud_device_release()
+        let units = (n > 0 ? Array(buf[0..<n]) : []).map { u in
+            String(format: "0x%02x ", Int(u.id)) + InterfaceSetup.name(ofSubtype: u.subtype) + (u.channels > 0 ? " (\(u.channels) channels)" : "")
         }
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+        let body = """
+        **Model:** \(deviceName ?? "iD") (USB product ID 0x\(String(format: "%04x", Int(pid)))), firmware release \(String(format: "%x.%02x", Int(release >> 8), Int(release & 0xff)))
+        **iDVolume:** \(version) · macOS \(ProcessInfo.processInfo.operatingSystemVersionString)
+
+        **Audio units reported by the interface** (read-only; nothing was sent to it)
+        \(units.map { "- \($0)" }.joined(separator: "\n"))
+        """
+        var comps = URLComponents(string: "https://github.com/\(Updater.repo)/issues/new")!
+        comps.queryItems = [URLQueryItem(name: "title", value: "Support request: \(deviceName ?? "iD") (firmware \(String(format: "%x.%02x", Int(release >> 8), Int(release & 0xff))))"),
+                            URLQueryItem(name: "body", value: body)]
+        if let url = comps.url { NSWorkspace.shared.open(url) }
     }
     @Published var lastError: String?
     @Published var accessibilityGranted = AXIsProcessTrusted()
@@ -346,7 +363,7 @@ final class AppState: ObservableObject {
         keyTap.handler = { [weak self] key, down, flags in
             guard let self else { return false }
             let out = AudioOutput.current()
-            let take = out.isAudient || !self.keysOnlyWhenAudient
+            let take = (out.isAudient || !self.keysOnlyWhenAudient) && !self.unsupportedModel   // leave keys to macOS
             if down {
                 if take { self.handleKey(key, flags: flags) }
             }
@@ -425,7 +442,7 @@ final class AppState: ObservableObject {
     /// Scroll wheel / trackpad over the menu bar icon: whole 1 dB steps (see ScrollStepper).
     private let iconScroll = ScrollStepper()
     func scroll(_ event: NSEvent) {
-        guard isConnected else { return }
+        guard isConnected, !unsupportedModel else { return }
         let n = iconScroll.steps(for: event)
         guard n != 0 else { return }
         speakers = min(1, max(0, speakers + Double(n) / 64))
@@ -576,8 +593,8 @@ final class AppState: ObservableObject {
         ModelProfile.recoverFromInterruptedTest(pid: pid)   // the interface hung during an interface-0 test
         modelProfile = ModelProfile.load(pid: pid)
         applyProfile()
-        // First time an unrecognised model connects: ask which interface it is.
-        if chosenMode == nil && !modelIsVerified && !defaults.bool(forKey: "welcomeShown.\(pid)") {
+        // First time an unsupported model connects: explain, once.
+        if !modelIsVerified && !defaults.bool(forKey: "unsupportedShown.\(pid)") {
             showWelcome = true
         }
     }
@@ -605,8 +622,7 @@ final class AppState: ObservableObject {
     }
 
     private func applySafeMode() {
-        let mode: Int32 = chosenMode == nil ? -1 : (chosenMode == .mk2 ? 1 : 0)
-        writer.perform { aud_set_mode(mode) }
+        writer.perform { aud_set_mode(-1) }   // automatic from the USB ID
     }
 
     private var panelMeterWasOn = false

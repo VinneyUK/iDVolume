@@ -27,6 +27,12 @@ void aud_set_mode(int mode);
 int aud_safe_mode(void);   // 1 if the connected model is in compatibility mode
 // Models whose read-back, change queue and interface-0 behaviour have been verified.
 int aud_model_fully_supported(int pid);
+// SAFETY: control requests are only ever sent to verified models (the iD14 MKII). On others
+// (e.g. the original iD14) the spare interface can be the firmware-update interface, where a
+// SET request looks like a firmware download and locks the interface up. Everything is
+// refused unless this is explicitly unlocked (idvol --untested, for research only).
+void aud_set_untested_unlock(int on);
+int aud_commands_blocked(void);   // 1 if the connected model is refused
 
 // --- Interface setup assistant (safe: descriptors only, plus user-confirmed commands) ---
 typedef struct { uint8_t id; uint8_t subtype; uint8_t channels; } AudEntity;

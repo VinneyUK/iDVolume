@@ -382,24 +382,26 @@ final class SpectrumAnalyzer: ObservableObject {
     private func analyse() {
         let mask = ringSize - 1
         var frame = VisFrame()
-        var newL = [Float](), newR = [Float]()
-        var fftL = [Float](), fftR = [Float]()
         let wantRecent = mode.needsSamples ? 2048 : 0
-        lock.withLock {
+        let wantSpectrum = mode.needsSpectrum
+        let fftSize = n
+        // Copy what's needed out of the ring buffers while holding the lock, and return it
+        // (rather than writing to outside variables), so Swift can prove this is thread-safe.
+        let (newL, newR, fftL, fftR, recentL, recentR) = lock.withLock {
+            () -> ([Float], [Float], [Float], [Float], [Float], [Float]) in
+            let pos = ringPos
+            func copy(_ ring: [Float], _ count: Int) -> [Float] {
+                (0..<count).map { ring[(pos - count + $0 + ringSize) & mask] }
+            }
             // Samples that arrived since the last frame (levels, waveform, VU).
-            let fresh = min((ringPos - lastReadPos + ringSize) & mask, ringSize / 2)
-            newL = (0..<fresh).map { ringL[(ringPos - fresh + $0 + ringSize) & mask] }
-            newR = (0..<fresh).map { ringR[(ringPos - fresh + $0 + ringSize) & mask] }
-            lastReadPos = ringPos
-            if mode.needsSpectrum {
-                fftL = (0..<n).map { ringL[(ringPos - n + $0 + ringSize) & mask] }
-                fftR = (0..<n).map { ringR[(ringPos - n + $0 + ringSize) & mask] }
-            }
-            if wantRecent > 0 {
-                frame.left = (0..<wantRecent).map { ringL[(ringPos - wantRecent + $0 + ringSize) & mask] }
-                frame.right = (0..<wantRecent).map { ringR[(ringPos - wantRecent + $0 + ringSize) & mask] }
-            }
+            let fresh = min((pos - lastReadPos + ringSize) & mask, ringSize / 2)
+            lastReadPos = pos
+            return (copy(ringL, fresh), copy(ringR, fresh),
+                    wantSpectrum ? copy(ringL, fftSize) : [], wantSpectrum ? copy(ringR, fftSize) : [],
+                    copy(ringL, wantRecent), copy(ringR, wantRecent))
         }
+        frame.left = recentL
+        frame.right = recentR
 
         // Levels: 300 ms RMS from each channel's power (per-sample smoothing over the fresh block).
         let aFast = 1 - exp(-1 / (0.3 * sampleRate))

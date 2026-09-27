@@ -2,6 +2,11 @@
 
 All notable changes to iDVolume. Versions are listed newest first.
 
+## 1.8.4
+
+- **Safety fix: iDVolume no longer sends any commands to models other than the iD14 MKII.** On the original iD14, the commands used in compatibility mode — including by the Setup wizard — were being received by its firmware-update interface, which locked the interface up until it was power-cycled. Sorry to everyone affected. The block is at the lowest level, so no feature can get round it. Unsupported models now show a notice, their controls are switched off, and the volume keys are left to macOS. **Send Details to the Developer** shares the interface's USB description (read-only) to help work out safe support in future.
+- Internal tidy-up in the visualiser's audio handling, ready for newer versions of Swift.
+
 ## 1.8.3
 
 - **Visualiser** in Console strip, showing what your Mac is playing (macOS 14.2 or later), in eight styles: Spectrum, Bars, Spectrogram, Waveform, Oscilloscope, Stereometer (with correlation), Loudness and a needle VU meter. Pick one in Settings → Panel, or double-click the visualiser to cycle through them; the choice is saved. It asks for system audio access the first time; audio is analysed on your Mac and never recorded or sent anywhere. Switch it off in Settings → Panel.

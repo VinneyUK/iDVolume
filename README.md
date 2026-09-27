@@ -53,7 +53,7 @@ See the [changelog](CHANGELOG.md) for what's new in each version.
 |---|---|
 | macOS | 13 Ventura or later |
 | Tested | Audient **iD14 MKII** |
-| Other iD models | iD14, iD4, iD4 MKII, iD22, iD24, iD44, iD44 MKII, iD48 run in **compatibility mode**: level and switches work, but nothing is read back (no knob sync or meters). Run **Settings → Setup** to check which controls work on yours, and send the results — they help add full support |
+| Other iD models | **Not supported yet.** iDVolume sends them no commands at all — on the original iD14 they locked the interface up. Use **Settings → Setup → Send Details** to help add support |
 
 ## Install
 

@@ -15,6 +15,7 @@ static IOUSBInterfaceInterface190 **g_intf = NULL;     // opened lazily, fallbac
 static int g_iface = 0;
 static int g_iface_override = -1;
 static int g_mode = -1;
+static int g_untested_unlock = 0;
 static int g_hp_override = 0;
 static int g_switch_iface = -2;
 static int g_has_spare = 0;
@@ -30,6 +31,8 @@ static const struct { uint16_t pid; const char *name; } kModels[] = {
 
 int aud_model_fully_supported(int pid) { return pid == 0x0008; }   // iD14 MKII
 void aud_set_mode(int mode) { g_mode = mode; }
+void aud_set_untested_unlock(int on) { g_untested_unlock = on ? 1 : 0; }
+int aud_commands_blocked(void) { return g_pid >= 0 && !aud_model_fully_supported(g_pid) && !g_untested_unlock; }
 int aud_safe_mode(void) {
     if (g_pid < 0) return 0;
     if (g_mode == 1) return 0;
@@ -197,6 +200,7 @@ static int open_ctl_interface(void) {
 // Class-specific SET_CUR, host->device, interface recipient (bmRequestType 0x21).
 static IOReturn send_request_on(int iface, uint16_t wValue, uint8_t entity, uint8_t *data, uint16_t len) {
     if (!g_dev && aud_connect() < 0) return kIOReturnNoDevice;
+    if (aud_commands_blocked()) return kIOReturnNotPermitted;   // never send to unverified models
 
     IOUSBDevRequestTO req;
     memset(&req, 0, sizeof(req));
@@ -300,6 +304,7 @@ int aud_read(uint8_t request, uint16_t wValue, uint8_t entity, uint8_t *buf, uin
 static int aud_read_on(int iface, uint8_t request, uint16_t wValue, uint8_t entity, uint8_t *buf, uint16_t len,
                        uint32_t timeout_ms) {
     if (!g_dev && aud_connect() < 0) return (int)kIOReturnNoDevice;
+    if (aud_commands_blocked()) return (int)kIOReturnNotPermitted;   // never read from unverified models
     IOUSBDevRequestTO req;
     memset(&req, 0, sizeof(req));
     req.bmRequestType = USBmakebmRequestType(kUSBIn, kUSBClass, kUSBInterface);

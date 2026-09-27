@@ -532,6 +532,15 @@ static int cmd_scan(const uint8_t *ents, int n_ents, Range r) {
 // ---------------------------------------------------------------- main
 
 int main(int argc, char **argv) {
+    // --untested: allow commands to models other than the iD14 MKII (research only; can lock up
+    // the interface until it's power-cycled).
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--untested") == 0) {
+            aud_set_untested_unlock(1);
+            for (int j = i; j < argc - 1; j++) argv[j] = argv[j + 1];
+            argc--; i--;
+        }
+    }
     // Optional:  --iface N  (anywhere) — send requests to interface N instead of the spare one.
     int iface = -1;
     for (int i = 1; i < argc; i++)

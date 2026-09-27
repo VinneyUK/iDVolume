@@ -183,7 +183,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             // Closing the window without choosing counts as "Not now".
             NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: w, queue: .main) { [weak self] _ in
                 guard let self else { return }
-                if self.state.showWelcome { self.state.welcomeChoice(.later) }
+                if self.state.showWelcome { self.state.welcomeChoice(.ok) }
                 self.welcomeWindow = nil
             }
             NSApp.activate(ignoringOtherApps: true)
