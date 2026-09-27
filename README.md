@@ -53,7 +53,7 @@ See the [changelog](CHANGELOG.md) for what's new in each version.
 |---|---|
 | macOS | 13 Ventura or later |
 | Tested | Audient **iD14 MKII** |
-| Other iD models | **Not supported yet.** iDVolume sends them no commands at all — on the original iD14 they locked the interface up. Use **Settings → Setup → Send Details** to help add support |
+| Other iD models | **Not supported yet.** iDVolume sends them no commands at all — on the original iD14 they locked the interface up. Use **Settings → Setup → Send Interface Report**, and see [docs/CAPTURE.md](docs/CAPTURE.md) to help add support |
 
 ## Install
 

@@ -2,6 +2,11 @@
 
 All notable changes to iDVolume. Versions are listed newest first.
 
+## 1.8.5
+
+- **Interface Report** for models iDVolume doesn't support yet: a full description of the interface from its own USB descriptors — its USB interfaces and their types, its audio units and controls, and the raw descriptor data. Nothing is sent to the interface. **Send Interface Report** opens a pre-filled GitHub issue; **Copy Report** copies it to paste into a message instead.
+- **docs/CAPTURE.md**: how to record Audient's own iD app on a Windows PC, so support for another model can be built safely, and `tools/analyse_capture.py` to turn a recording into a list of commands.
+
 ## 1.8.4
 
 - **Safety fix: iDVolume no longer sends any commands to models other than the iD14 MKII.** On the original iD14, the commands used in compatibility mode — including by the Setup wizard — were being received by its firmware-update interface, which locked the interface up until it was power-cycled. Sorry to everyone affected. The block is at the lowest level, so no feature can get round it. Unsupported models now show a notice, their controls are switched off, and the volume keys are left to macOS. **Send Details to the Developer** shares the interface's USB description (read-only) to help work out safe support in future.

@@ -8,8 +8,8 @@
     <key>CFBundleExecutable</key><string>iDVolume</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>1.8.4</string>
-    <key>CFBundleVersion</key><string>184</string>
+    <key>CFBundleShortVersionString</key><string>1.8.5</string>
+    <key>CFBundleVersion</key><string>185</string>
     <key>LSMinimumSystemVersion</key><string>13.0</string>
     <key>LSUIElement</key><true/>
     <key>NSAudioCaptureUsageDescription</key><string>iDVolume shows a spectrum of what your Mac is playing. The audio is analysed on your Mac and never recorded, saved or sent anywhere.</string>

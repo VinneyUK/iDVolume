@@ -194,29 +194,9 @@ final class AppState: ObservableObject {
         if choice == .sendDetails { sendUnsupportedReport() }
     }
 
-    /// A GitHub issue with the model's USB description (read-only, safe on any device) so
-    /// support can be looked into. Nothing is sent to the interface.
-    func sendUnsupportedReport() {
-        let pid = devicePID ?? -1
-        var buf = [AudEntity](repeating: AudEntity(), count: 64)
-        let n = Int(aud_list_audio_entities(&buf, 64))
-        let release = aud_device_release()
-        let units = (n > 0 ? Array(buf[0..<n]) : []).map { u in
-            String(format: "0x%02x ", Int(u.id)) + InterfaceSetup.name(ofSubtype: u.subtype) + (u.channels > 0 ? " (\(u.channels) channels)" : "")
-        }
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
-        let body = """
-        **Model:** \(deviceName ?? "iD") (USB product ID 0x\(String(format: "%04x", Int(pid)))), firmware release \(String(format: "%x.%02x", Int(release >> 8), Int(release & 0xff)))
-        **iDVolume:** \(version) · macOS \(ProcessInfo.processInfo.operatingSystemVersionString)
-
-        **Audio units reported by the interface** (read-only; nothing was sent to it)
-        \(units.map { "- \($0)" }.joined(separator: "\n"))
-        """
-        var comps = URLComponents(string: "https://github.com/\(Updater.repo)/issues/new")!
-        comps.queryItems = [URLQueryItem(name: "title", value: "Support request: \(deviceName ?? "iD") (firmware \(String(format: "%x.%02x", Int(release >> 8), Int(release & 0xff))))"),
-                            URLQueryItem(name: "body", value: body)]
-        if let url = comps.url { NSWorkspace.shared.open(url) }
-    }
+    /// Full Interface Report (USB descriptors only; nothing is sent to the interface).
+    func sendUnsupportedReport() { InterfaceReport.openIssue(state: self) }
+    func copyInterfaceReport() { InterfaceReport.copy(state: self) }
     @Published var lastError: String?
     @Published var accessibilityGranted = AXIsProcessTrusted()
     @Published var tapRunning = false

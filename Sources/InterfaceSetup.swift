@@ -680,9 +680,14 @@ struct SetupTab: View {
                             .font(.system(size: 14, weight: .semibold))
                         Text("iDVolume currently works with the iD14 MKII only. Commands that are safe on the MKII can lock up other models (the original iD14 treats them as the start of a firmware update), so iDVolume sends this interface no commands at all.")
                             .font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
-                        Text("Sending its details (read from its standard USB description; nothing is sent to it) helps work out safe support in future.")
+                        Text("The Interface Report describes this interface from its own USB descriptors — the information macOS reads when you plug it in. Nothing is sent to the interface. Sending it helps work out safe support in future.")
                             .font(.system(size: 12)).foregroundStyle(Skin.silk).fixedSize(horizontal: false, vertical: true)
-                        Button("Send Details to the Developer…") { state.sendUnsupportedReport() }.padding(.top, 4)
+                        HStack {
+                            Button("Send Interface Report…") { state.sendUnsupportedReport() }
+                            Button("Copy Report") { state.copyInterfaceReport() }
+                                .help("Copy the report to paste into an email or message instead")
+                        }
+                        .padding(.top, 4)
                     }
                 }
             }
@@ -705,10 +710,11 @@ struct WelcomeView: View {
                     Text("iDVolume currently works with the iD14 MKII only").font(.system(size: 12)).foregroundStyle(Skin.silkDim)
                 }
             }
-            Text("To keep your interface safe, iDVolume won't send it any commands, so its controls are switched off. Sending its details (read-only) helps work out support for it in future.")
+            Text("To keep your interface safe, iDVolume won't send it any commands, so its controls are switched off. Sending its Interface Report (read from its USB descriptors; nothing is sent to it) helps work out support for it in future.")
                 .font(.system(size: 13)).fixedSize(horizontal: false, vertical: true)
             HStack {
-                Button("Send Details to the Developer…") { state.welcomeChoice(.sendDetails) }
+                Button("Send Interface Report…") { state.welcomeChoice(.sendDetails) }
+                Button("Copy Report") { state.copyInterfaceReport() }
                 Spacer()
                 Button("OK") { state.welcomeChoice(.ok) }.keyboardShortcut(.defaultAction)
             }
