@@ -2,6 +2,13 @@
 
 All notable changes to iDVolume. Versions are listed newest first.
 
+## 1.8
+
+- **Settings → Setup** (now first in Settings) asks which interface you have: **iD14 MKII** for full features, or **Another iD model** for compatibility mode and a setup wizard. It's pre-selected from your interface's USB ID and saved per interface.
+- **Setup wizard for other iD models.** A guided setup finds out what works on yours in about two minutes: it identifies the interface from its USB description, then plays short tests and asks what you heard — speaker and headphone level (trying other channels if needed), headphone mute, and each monitor switch command. From your answers it works out which command does what on your model (Mute, Dim, Mono, Polarity, Talkback, Alt) and whether the front-panel LEDs update. **The setup is safe**: it only sends commands and never reads from the interface; one optional LED step with a small risk asks before it runs.
+- The results are saved and used automatically, and **Send Results** opens a pre-filled GitHub issue so support for your model can be built in for everyone.
+- **Welcome on first connection** of any interface that isn't recognised as an iD14 MKII, asking the same question.
+
 ## 1.7.5
 
 - **Compatibility mode for models other than the iD14 MKII.** iDVolume now only sends commands to untested models (like MixiD) and doesn't read anything back — fixing interfaces (such as the original iD14) locking up until unplugged. Knob sync, meters and the iD button setting stay off on those models unless you choose Settings → Interface → *Use full features anyway*.

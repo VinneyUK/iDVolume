@@ -25,6 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var barLevels = (left: -120.0, right: -120.0)
     private let barMeter = MenuBarMeter()
     private var settingsWindow: NSWindow?
+    private var welcomeWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         state = AppState()
@@ -52,6 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             DispatchQueue.main.async {
                 self?.updateIcon()
                 self?.applyAppearance()
+                self?.updateWelcome()
             }
         }
         state.onBarMeter = { [weak self] left, right in
@@ -130,6 +132,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     @objc private func reconnectAction() { state.reconnect() }
+
+    /// First connection of a model that isn't fully supported: ask what to do.
+    private func updateWelcome() {
+        if state.showWelcome, welcomeWindow == nil {
+            let host = NSHostingController(rootView: WelcomeView().environmentObject(state))
+            let w = NSWindow(contentViewController: host)
+            w.title = "iDVolume"
+            w.styleMask = [.titled, .closable]
+            w.isReleasedWhenClosed = false
+            w.appearance = state.appearance.nsAppearance
+            w.center()
+            welcomeWindow = w
+            // Closing the window without choosing counts as "Not now".
+            NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: w, queue: .main) { [weak self] _ in
+                guard let self else { return }
+                if self.state.showWelcome { self.state.welcomeChoice(.later) }
+                self.welcomeWindow = nil
+            }
+            NSApp.activate(ignoringOtherApps: true)
+            w.makeKeyAndOrderFront(nil)
+        } else if !state.showWelcome, let w = welcomeWindow {
+            welcomeWindow = nil
+            w.close()
+        }
+    }
 
     private func pointerIsOverIcon() -> Bool {
         guard let button = statusItem.button, let window = button.window else { return false }

@@ -7,13 +7,14 @@ struct SettingsView: View {
     private var tab: Tab { state.settingsTab }
 
     enum Tab: String, CaseIterable, Identifiable {
-        case panel = "Panel", general = "General", interface = "Interface", menuBar = "Menu bar", updates = "Updates"
+        case setup = "Setup", panel = "Panel", general = "General", interface = "Interface", menuBar = "Menu bar", updates = "Updates"
         var id: String { rawValue }
         var icon: String {
             switch self {
             case .panel: return "rectangle.grid.2x2"
             case .general: return "keyboard"
             case .interface: return "slider.horizontal.3"
+            case .setup: return "wand.and.stars"
             case .menuBar: return "menubar.rectangle"
             case .updates: return "arrow.down.circle"
             }
@@ -34,7 +35,8 @@ struct SettingsView: View {
             Divider()
             footer
         }
-        .frame(width: 600, height: 440)
+        .frame(width: 640, height: 520)
+
         .background(Skin.plate)
         .tint(Skin.keyDark)
     }
@@ -75,6 +77,7 @@ struct SettingsView: View {
         case .panel: panelTab
         case .general: generalTab
         case .interface: interfaceTab
+        case .setup: SetupTab()
         case .menuBar: menuBarTab
         case .updates: updatesTab
         }
@@ -135,22 +138,6 @@ struct SettingsView: View {
 
     private var interfaceTab: some View {
         VStack(alignment: .leading, spacing: 14) {
-            if !state.modelIsVerified {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: "exclamationmark.shield").foregroundStyle(.orange)
-                        Text(state.safeMode
-                             ? "Compatibility mode: iDVolume only sends commands to your \(state.deviceName ?? "interface") and doesn't read anything back, so the level and switches won't follow the hardware. It's only been fully tested on the iD14 MKII."
-                             : "Full features are on for an untested model. If the interface stops responding, switch this off and unplug it for a few seconds.")
-                            .font(.system(size: 12)).foregroundStyle(Skin.ink)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    row("Use full features anyway", hint: "Knob sync, meters and the iD button setting. May hang untested models",
-                        isOn: $state.fullFeaturesOnUntested)
-                }
-                .padding(12)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Skin.well))
-            }
             HStack {
                 labelBlock("iD button", hint: "What the iD button on the interface does")
                 Spacer()

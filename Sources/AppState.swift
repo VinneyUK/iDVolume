@@ -87,7 +87,7 @@ final class AppState: ObservableObject {
         static let style = "menuBarStyle", showLevel = "showLevelInMenuBar", restore = "restoreOnPowerUp"
         static let barMeter = "menuBarMeter", idFollows = "idLedFollows"
         static let layout = "panelLayout", knobTarget = "knobTarget", appearance = "appearance"
-        static let fullFeatures = "fullFeaturesOnUntestedModels"
+
     }
     private let defaults = UserDefaults.standard
     private let writer = USBWriter()
@@ -133,16 +133,48 @@ final class AppState: ObservableObject {
     // MARK: Device status
     @Published var deviceName: String?
     @Published private(set) var devicePID: Int32?
-    /// Allow read-back features on models they haven't been verified on (off by default).
-    @Published var fullFeaturesOnUntested: Bool {
-        didSet { defaults.set(fullFeaturesOnUntested, forKey: K.fullFeatures); applySafeMode() }
-    }
-    /// True when the connected model hasn't been verified: commands only, nothing is read back.
-    var safeMode: Bool {
-        guard let pid = devicePID else { return false }
-        return aud_model_fully_supported(pid) == 0 && !fullFeaturesOnUntested
-    }
     var modelIsVerified: Bool { devicePID.map { aud_model_fully_supported($0) != 0 } ?? true }
+
+    /// The user's answer in Settings → Setup: "I have an iD14 MKII" or "another iD model".
+    enum InterfaceMode: String { case mk2, compatibility }
+    /// Saved per interface (USB product ID). nil = not chosen yet → from the USB ID.
+    @Published private(set) var chosenMode: InterfaceMode?
+    var interfaceMode: InterfaceMode { chosenMode ?? (modelIsVerified ? .mk2 : .compatibility) }
+    /// Compatibility mode: commands only, nothing is read back.
+    var safeMode: Bool { devicePID != nil && interfaceMode == .compatibility }
+
+    func setInterfaceMode(_ mode: InterfaceMode) {
+        guard let pid = devicePID else { return }
+        defaults.set(mode.rawValue, forKey: "interfaceMode.\(pid)")
+        defaults.set(true, forKey: "welcomeShown.\(pid)")
+        chosenMode = mode
+        applySafeMode()
+        loadProfile()
+    }
+    /// What the Interface setup assistant learned about the connected model (other models only).
+    @Published private(set) var modelProfile: ModelProfile?
+    /// True when a not-fully-supported model connects for the first time (the app delegate
+    /// shows the welcome window). `requestSetup` asks Settings to open the assistant.
+    @Published var showWelcome = false
+    @Published var requestSetup = false
+
+    enum WelcomeChoice { case mk2, compatibility, later }
+
+    func welcomeChoice(_ choice: WelcomeChoice) {
+        if let pid = devicePID { defaults.set(true, forKey: "welcomeShown.\(pid)") }
+        showWelcome = false
+        switch choice {
+        case .mk2:
+            setInterfaceMode(.mk2)
+        case .compatibility:
+            setInterfaceMode(.compatibility)
+            settingsTab = .setup
+            requestSetup = true
+            openSettings?()
+        case .later:
+            break
+        }
+    }
     @Published var lastError: String?
     @Published var accessibilityGranted = AXIsProcessTrusted()
     @Published var tapRunning = false
@@ -273,7 +305,6 @@ final class AppState: ObservableObject {
         panelLayout = PanelLayout(rawValue: defaults.string(forKey: K.layout) ?? "") ?? .consoleStrip
         knobTarget = KnobTarget(rawValue: defaults.string(forKey: K.knobTarget) ?? "") ?? .speakers
         appearance = AppAppearance(rawValue: defaults.string(forKey: K.appearance) ?? "") ?? .light
-        fullFeaturesOnUntested = defaults.bool(forKey: K.fullFeatures)
         launchAtLogin = SMAppService.mainApp.status == .enabled
 
         writer.onResult = { [weak self] status, pid in self?.handle(status: status, pid: pid) }
@@ -299,7 +330,6 @@ final class AppState: ObservableObject {
 
         refresh()
         updateKeyTap()
-        writer.setAllowUntested(fullFeaturesOnUntested)
         writer.startPolling()
         updateMeterPolling()
         timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in self?.tick() }
@@ -467,8 +497,10 @@ final class AppState: ObservableObject {
         let newPID: Int32? = pid >= 0 ? pid : nil
         if newPID != devicePID {
             devicePID = newPID
-            applySafeMode()
+            chosenMode = newPID.flatMap { InterfaceMode(rawValue: defaults.string(forKey: "interfaceMode.\($0)") ?? "") }
+            loadProfile()
         }
+        if newPID != nil { applySafeMode() }   // the C layer resets to automatic on every reconnect
         deviceName = pid >= 0 ? String(cString: aud_product_name(pid)) : nil
         if !wasConnected && isConnected {
             awaitingFirstPoll = true      // decide on power-up restore once we've read the level
@@ -477,8 +509,57 @@ final class AppState: ObservableObject {
         lastError = status == 0 ? nil : String(format: "USB request failed (0x%08X)", UInt32(bitPattern: status))
     }
 
+    // MARK: - Learned profiles (Interface setup assistant)
+
+    /// Run work on the USB queue (the assistant's tests go through here, like everything else).
+    func perform(_ work: @escaping () -> Void) { writer.perform(work) }
+
+    func saveProfile(_ p: ModelProfile) {
+        p.save()
+        modelProfile = p
+        applyProfile()
+    }
+
+    private func loadProfile() {
+        guard let pid = devicePID, interfaceMode == .compatibility else {
+            modelProfile = nil
+            applyProfile()
+            return
+        }
+        ModelProfile.recoverFromInterruptedTest(pid: pid)   // the interface hung during an interface-0 test
+        modelProfile = ModelProfile.load(pid: pid)
+        applyProfile()
+        // First time an unrecognised model connects: ask which interface it is.
+        if chosenMode == nil && !modelIsVerified && !defaults.bool(forKey: "welcomeShown.\(pid)") {
+            showWelcome = true
+        }
+    }
+
+    /// Put the saved choices back (e.g. after the assistant is cancelled mid-test).
+    func reapplyProfile() { applyProfile() }
+
+    func forgetProfile() {
+        guard let pid = devicePID else { return }
+        ModelProfile.delete(pid: pid)
+        modelProfile = nil
+        applyProfile()
+    }
+
+    private func applyProfile() {
+        let hp = Int32(modelProfile?.headphoneFirstChannel ?? 0)
+        let sw = Int32(modelProfile?.switchInterface ?? -2)
+        // Which selector each tile uses on this model (-1 = the usual one).
+        let selectors = MonitorFunction.allCases.map { f in (f.which, Int32(modelProfile?.switchMap[f.rawValue] ?? -1)) }
+        writer.perform {
+            aud_set_hp_channel_override(hp)
+            aud_set_switch_interface(sw)
+            for (which, sel) in selectors { aud_set_switch_selector(which, sel) }
+        }
+    }
+
     private func applySafeMode() {
-        writer.setAllowUntested(fullFeaturesOnUntested)
+        let mode: Int32 = chosenMode == nil ? -1 : (chosenMode == .mk2 ? 1 : 0)
+        writer.perform { aud_set_mode(mode) }
     }
 
     private func updateMeterPolling() {
@@ -589,6 +670,8 @@ final class USBWriter: @unchecked Sendable {
         }
     }
 
+    func perform(_ work: @escaping () -> Void) { queue.async(execute: work) }
+
     func probe(_ done: @escaping (Int32) -> Void) {
         queue.async { let pid = aud_probe(); DispatchQueue.main.async { done(pid) } }
     }
@@ -612,9 +695,7 @@ final class USBWriter: @unchecked Sendable {
     /// read can never reach an untested interface — not even in the moment after it connects.
     private var safeMode: Bool { aud_safe_mode() != 0 }
 
-    func setAllowUntested(_ on: Bool) {
-        queue.async { aud_set_allow_untested(on ? 1 : 0) }
-    }
+
     private var idButtonRead = false   // read once per connection (plus on change events)
 
     private func poll() {

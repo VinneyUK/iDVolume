@@ -14,7 +14,9 @@ static io_service_t g_ctl_service = IO_OBJECT_NULL;   // spare DFU/vendor interf
 static IOUSBInterfaceInterface190 **g_intf = NULL;     // opened lazily, fallback path only
 static int g_iface = 0;
 static int g_iface_override = -1;
-static int g_allow_untested = 0;
+static int g_mode = -1;
+static int g_hp_override = 0;
+static int g_switch_iface = -2;
 static int g_has_spare = 0;
 static int g_pid = -1;
 static const char *g_last_path = "none";
@@ -27,11 +29,22 @@ static const struct { uint16_t pid; const char *name; } kModels[] = {
 #define N_MODELS (sizeof(kModels) / sizeof(kModels[0]))
 
 int aud_model_fully_supported(int pid) { return pid == 0x0008; }   // iD14 MKII
-void aud_set_allow_untested(int on) { g_allow_untested = on ? 1 : 0; }
-int aud_safe_mode(void) { return g_pid >= 0 && !aud_model_fully_supported(g_pid) && !g_allow_untested; }
+void aud_set_mode(int mode) { g_mode = mode; }
+int aud_safe_mode(void) {
+    if (g_pid < 0) return 0;
+    if (g_mode == 1) return 0;
+    if (g_mode == 0) return 1;
+    return !aud_model_fully_supported(g_pid);
+}
 
 // Headphone channels: 5/6 on the iD14 MKII (from a capture of Audient's app); MixiD's 3/4 elsewhere.
-static int hp_first_channel(void) { return g_pid == 0x0008 ? 5 : 3; }
+static int hp_first_channel(void) {
+    if (g_hp_override > 0) return g_hp_override;
+    return g_pid == 0x0008 ? 5 : 3;
+}
+
+void aud_set_hp_channel_override(int first) { g_hp_override = first > 0 ? first : 0; }
+void aud_set_switch_interface(int pref) { g_switch_iface = pref; }
 
 const char *aud_product_name(int pid) {
     for (size_t i = 0; i < N_MODELS; i++)
@@ -94,6 +107,7 @@ void aud_disconnect(void) {
     g_pid = -1;
     g_iface = 0;
     g_has_spare = 0;
+    g_mode = -1;        // back to automatic until the app applies the saved choice
 }
 
 int aud_connect(void) {
@@ -241,9 +255,11 @@ int aud_set_headphone_raw(int16_t raw) {
     return (int)(a != kIOReturnSuccess ? a : b);
 }
 
-// Selectors from MixiD's masterVals, on the monitor entity (0x36).
-static const uint16_t kSwitchSelectors[] = {0x0000 /* mono */, 0x0500 /* dim */, 0x0c00 /* alt */,
-                                            0x0300 /* polarity */, 0x0400 /* mute */, 0x0700 /* talkback */};
+// Selectors on the monitor entity (0x36), from MixiD and captures of Audient's app. The
+// setup assistant can remap them per model (aud_set_switch_selector).
+static const uint16_t kSwitchDefaults[] = {0x0000 /* mono */, 0x0500 /* dim */, 0x0c00 /* alt */,
+                                           0x0300 /* polarity */, 0x0400 /* mute */, 0x0700 /* talkback */};
+static uint16_t kSwitchSelectors[] = {0x0000, 0x0500, 0x0c00, 0x0300, 0x0400, 0x0700};
 #define N_SWITCHES (int)(sizeof(kSwitchSelectors) / sizeof(kSwitchSelectors[0]))
 
 // Front-panel switches are written AND read on interface 0, like Audient's app. On the spare
@@ -252,7 +268,19 @@ static const uint16_t kSwitchSelectors[] = {0x0000 /* mono */, 0x0500 /* dim */,
 // spare interface returns a stale value.
 static int panel_iface(void) {
     if (g_iface_override >= 0) return g_iface_override;
+    if (g_switch_iface == -1) return g_iface;          // learned: spare interface
+    if (g_switch_iface >= 0) return g_switch_iface;     // learned: a specific interface
     return aud_safe_mode() ? g_iface : 0;
+}
+
+void aud_set_switch_selector(int which, int selector) {
+    if (which < 0 || which >= N_SWITCHES) return;
+    kSwitchSelectors[which] = selector >= 0 ? (uint16_t)(selector << 8) : kSwitchDefaults[which];
+}
+
+int aud_send_monitor_selector(int selector, int on) {
+    uint8_t b = on ? 1 : 0;
+    return (int)send_bytes_retry_on(panel_iface(), (uint16_t)(selector << 8), 0x36, &b, 1);
 }
 
 int aud_set_monitor_switch(int which, int on) {
@@ -361,6 +389,31 @@ int aud_read_output_meters(uint16_t *outputs6) {
     if (n != 12) return n < 0 ? n : (int)kIOReturnUnderrun;
     for (int i = 0; i < 6; i++) outputs6[i] = (uint16_t)(b[2 * i] | (b[2 * i + 1] << 8));
     return 0;
+}
+
+int aud_list_audio_entities(AudEntity *out, int max) {
+    const uint8_t *d = NULL;
+    int total = aud_config_descriptor(&d);
+    if (total <= 0) return -1;
+    int cls = -1, sub = -1, n = 0;
+    for (int i = 0; i + 2 <= total && d[i] >= 2; i += d[i]) {
+        const uint8_t *x = d + i;
+        if (x[1] == 0x04 && i + 8 <= total) { cls = x[5]; sub = x[6]; continue; }
+        // Class-specific AudioControl descriptors: subtype >= 2 are terminals and units.
+        if (x[1] == 0x24 && cls == 0x01 && sub == 0x01 && x[0] >= 4 && x[2] >= 0x02 && n < max) {
+            AudEntity e = {x[3], x[2], 0};
+            if (x[2] == 0x06 && x[0] >= 10) e.channels = (uint8_t)((x[0] - 6) / 4 - 1);  // UAC2 feature unit
+            out[n++] = e;
+        }
+    }
+    return n;
+}
+
+uint16_t aud_device_release(void) {
+    if (!g_dev && aud_connect() < 0) return 0;
+    UInt16 r = 0;
+    (*g_dev)->GetDeviceReleaseNumber(g_dev, &r);
+    return r;
 }
 
 int aud_config_descriptor(const uint8_t **out) {

@@ -18,13 +18,28 @@ int aud_control_interface(void);
 // Force the interface number used in wIndex (-1 = automatic: the spare DFU interface).
 void aud_set_interface_override(int iface);
 
-// Compatibility ("safe") mode applies automatically to models other than the iD14 MKII:
-// every command goes to the spare interface (as MixiD does) and the app reads nothing back.
-// aud_set_allow_untested(1) lifts it ("Use full features anyway").
-void aud_set_allow_untested(int on);
+// Compatibility ("safe") mode: every command goes to the spare interface (as MixiD does)
+// and the app reads nothing back. The user picks the mode in Settings → Setup:
+// 1 = iD14 MKII (full features), 0 = compatibility, -1 = automatic from the USB ID.
+// It resets to automatic on every (re)connect until the app applies the saved choice,
+// so a newly connected untested model is always safe.
+void aud_set_mode(int mode);
 int aud_safe_mode(void);   // 1 if the connected model is in compatibility mode
 // Models whose read-back, change queue and interface-0 behaviour have been verified.
 int aud_model_fully_supported(int pid);
+
+// --- Interface setup assistant (safe: descriptors only, plus user-confirmed commands) ---
+typedef struct { uint8_t id; uint8_t subtype; uint8_t channels; } AudEntity;
+// Audio units listed in the USB configuration descriptor (a standard request, safe on any
+// device). channels is filled for feature units. Returns the count, or -1.
+int aud_list_audio_entities(AudEntity *out, int max);
+uint16_t aud_device_release(void);           // bcdDevice (firmware release)
+void aud_set_hp_channel_override(int first); // 0 = default for the model
+void aud_set_switch_interface(int pref);     // -2 automatic, -1 spare interface, >=0 that interface
+// Which selector (on the monitor entity 0x36) each AUD_SW_* function uses; -1 = default.
+void aud_set_switch_selector(int which, int selector);
+// Send one monitor-entity selector on/off (the assistant's discovery tests).
+int aud_send_monitor_selector(int selector, int on);
 int aud_has_spare_interface(void);
 const char *aud_product_name(int pid);
 const char *aud_last_path(void);
@@ -44,6 +59,7 @@ int aud_set_headphone_raw(int16_t raw);
 #define AUD_SW_POLARITY 3
 #define AUD_SW_MUTE 4       // hardware speaker mute (what pressing the knob toggles)
 #define AUD_SW_TALKBACK 5   // the iD also switches Dim with it
+#define AUD_SW_COUNT 6
 int aud_set_monitor_switch(int which, int on);
 
 // iD button assignment (entity 0x36, CS 0x10). Value = code of the function it controls:
