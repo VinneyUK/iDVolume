@@ -54,6 +54,12 @@ enum Skin {
     static let capLine = pair(0x3d4045, 0xe6e8eb)
 
     static let amber = Color(hex: 0xf0a020)      // level scale + update badge only
+
+    /// LED glow strength: strong on the dark finish, subtle on the light one (a heavy glow
+    /// looks muddy on silver).
+    static func ledGlowOpacity(for appearance: NSAppearance) -> Float {
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? 0.9 : 0.45
+    }
     static let ledOn = Color(hex: 0x2fd46e)      // "on" LEDs and backlit labels
     static let red = Color(hex: 0xe5483a)
     static let green = Color(hex: 0x2fae66)
@@ -163,8 +169,12 @@ struct Readout: View {
     let text: String
     var size: CGFloat = 18
     var alert = false
+    @EnvironmentObject var state: AppState
     var body: some View {
         Text(text).font(Skin.readoutFont(size)).foregroundStyle(alert ? Skin.red : Skin.ink)
+            .contentShape(Rectangle())
+            .onTapGesture(count: 2) { state.levelsInPercent.toggle() }
+            .help("Double-click to show dB or %")
     }
 }
 
@@ -174,13 +184,21 @@ struct LEDView: View {
     var flash = false
     var size: CGFloat = 7
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 0.5)) { ctx in
-            let blinkOff = flash && Int(ctx.date.timeIntervalSinceReferenceDate * 2) % 2 == 1
-            Circle()
-                .fill(color.map { blinkOff ? Skin.ledOff : $0 } ?? Skin.ledOff)
-                .frame(width: size, height: size)
-                .shadow(color: (color != nil && !blinkOff) ? color!.opacity(0.8) : .clear, radius: 3)
+        if flash, let color {
+            TimelineView(.periodic(from: .now, by: 0.5)) { ctx in
+                let blinkOff = Int(ctx.date.timeIntervalSinceReferenceDate * 2) % 2 == 1
+                dot(blinkOff ? nil : color)
+            }
+        } else {
+            dot(color)   // static: no timer, no periodic re-rendering
         }
+    }
+
+    private func dot(_ c: Color?) -> some View {
+        Circle()
+            .fill(c ?? Skin.ledOff)
+            .frame(width: size, height: size)
+            .shadow(color: c?.opacity(0.8) ?? .clear, radius: 3)
     }
 }
 
@@ -325,6 +343,8 @@ struct HWKnob: View {
     var segments = 21
     var dimmed = false
     var label = "Level"
+    /// Double-click action (mute/unmute the output this knob controls).
+    var onDoubleClick: (() -> Void)? = nil
     @State private var dragStart: Double?
 
     var body: some View {
@@ -337,6 +357,7 @@ struct HWKnob: View {
                     value = clamp01((dragStart ?? value) - g.translation.height / 200)
                 }
                 .onEnded { _ in dragStart = nil })
+            .simultaneousGesture(TapGesture(count: 2).onEnded { onDoubleClick?() })
             .scrollSteps($value)
             .accessibilityElement()
             .accessibilityLabel(label)
@@ -415,6 +436,7 @@ struct HWFader: View {
     @Binding var value: Double
     var height: CGFloat = 170
     var label = "Level"
+    var onDoubleClick: (() -> Void)? = nil
 
     var body: some View {
         let travel = height - 24
@@ -433,6 +455,7 @@ struct HWFader: View {
         .gesture(DragGesture(minimumDistance: 0).onChanged { g in
             value = clamp01(1 - (g.location.y - 12) / travel)
         })
+        .simultaneousGesture(TapGesture(count: 2).onEnded { onDoubleClick?() })
         .scrollSteps($value)
         .accessibilityElement()
         .accessibilityLabel(label)
@@ -455,6 +478,7 @@ struct HWSlider: View {
     @Binding var value: Double
     var thin = false
     var label = "Level"
+    var onDoubleClick: (() -> Void)? = nil
 
     var body: some View {
         let h: CGFloat = thin ? 22 : 30
@@ -476,6 +500,7 @@ struct HWSlider: View {
             .gesture(DragGesture(minimumDistance: 0).onChanged { g in
                 value = clamp01((g.location.x - 10) / travel)
             })
+            .simultaneousGesture(TapGesture(count: 2).onEnded { onDoubleClick?() })
         }
         .frame(height: h)
         .scrollSteps($value)
@@ -488,28 +513,230 @@ struct HWSlider: View {
 
 // MARK: - Meter
 
-/// Stereo LED bar meter (speaker output), −48…0 dBFS.
-struct HWStereoMeter: View {
+/// Stereo LED bar meter (speaker output), −48…0 dBFS. Built from Core Animation layers, one
+/// per segment: an update only changes segment colours, with no drawing and no new images,
+/// so a live meter costs almost nothing in CPU or graphics memory.
+struct HWStereoMeter: NSViewRepresentable {
     @ObservedObject var levels: PanelLevels
     var segments = 30
 
-    var body: some View {
-        Canvas { ctx, size in
-            let rows = [levels.left, levels.right]
-            let gap: CGFloat = 2
-            let rowH = (size.height - 3) / 2
-            let segW = (size.width - gap * CGFloat(segments - 1)) / CGFloat(segments)
-            for (r, db) in rows.enumerated() {
-                let frac = min(1, max(0, (db + 48) / 48))
-                for i in 0..<segments {
-                    let t = Double(i + 1) / Double(segments)
-                    let hue = t > 0.9 ? Skin.red : t > 0.75 ? Skin.amber : Skin.green
-                    let rect = CGRect(x: CGFloat(i) * (segW + gap), y: CGFloat(r) * (rowH + 3), width: segW, height: rowH)
-                    ctx.fill(Path(roundedRect: rect, cornerRadius: 1), with: .color(frac >= t ? hue : Skin.groove))
-                }
+    func makeNSView(context: Context) -> SegmentMeterView {
+        let v = SegmentMeterView()
+        v.segments = segments
+        return v
+    }
+
+    func updateNSView(_ view: SegmentMeterView, context: Context) {
+        view.update(left: levels.left, right: levels.right)
+    }
+}
+
+final class SegmentMeterView: NSView {
+    var segments = 30 { didSet { rebuild() } }
+    private var rows: [[CALayer]] = []
+    private var lastLeft = -999.0, lastRight = -999.0
+    private var lit: [[Bool]] = []
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        rebuild()
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var intrinsicContentSize: NSSize { NSSize(width: NSView.noIntrinsicMetric, height: 13) }
+
+    private func rebuild() {
+        rows.flatMap { $0 }.forEach { $0.removeFromSuperlayer() }
+        rows = (0..<2).map { _ in
+            (0..<segments).map { _ in
+                let l = CALayer()
+                l.cornerRadius = 1
+                layer?.addSublayer(l)
+                return l
             }
         }
-        .frame(height: 13)
-        .accessibilityHidden(true)
+        lit = Array(repeating: Array(repeating: false, count: segments), count: 2)
+        lastLeft = -999; lastRight = -999
+        recolor()
+        needsLayout = true
+    }
+
+    override func layout() {
+        super.layout()
+        let gap: CGFloat = 2
+        let rowH = (bounds.height - 3) / 2
+        let segW = (bounds.width - gap * CGFloat(segments - 1)) / CGFloat(segments)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for (r, row) in rows.enumerated() {
+            let y = isFlipped ? CGFloat(r) * (rowH + 3) : bounds.height - rowH - CGFloat(r) * (rowH + 3)
+            for (i, l) in row.enumerated() {
+                l.frame = CGRect(x: CGFloat(i) * (segW + gap), y: y, width: segW, height: rowH)
+                // Precomputed glow shape: macOS doesn't have to work it out on every update.
+                l.shadowPath = CGPath(roundedRect: l.bounds, cornerWidth: 1, cornerHeight: 1, transform: nil)
+                l.shadowOffset = .zero
+                l.shadowRadius = 3
+            }
+        }
+        CATransaction.commit()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        recolor()
+    }
+
+    private func hue(_ i: Int) -> Color {
+        let t = Double(i + 1) / Double(segments)
+        return t > 0.9 ? Skin.red : t > 0.75 ? Skin.amber : Skin.green
+    }
+
+    /// Resolve the segment colours for the current appearance and apply them.
+    private func recolor() {
+        var off = NSColor.gray.cgColor
+        var on: [CGColor] = []
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            off = NSColor(Skin.groove).cgColor
+            on = (0..<segments).map { NSColor(hue($0)).cgColor }
+        }
+        let glow = Skin.ledGlowOpacity(for: effectiveAppearance)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for (r, row) in rows.enumerated() {
+            for (i, l) in row.enumerated() {
+                l.backgroundColor = lit[r][i] ? on[i] : off
+                l.shadowColor = on[i]
+                l.shadowOpacity = lit[r][i] ? glow : 0
+            }
+        }
+        CATransaction.commit()
+    }
+
+    func update(left: Double, right: Double) {
+        guard abs(left - lastLeft) >= 0.3 || abs(right - lastRight) >= 0.3 else { return }
+        lastLeft = left; lastRight = right
+        var changed = false
+        for (r, db) in [left, right].enumerated() {
+            let frac = min(1, max(0, (db + 48) / 48))
+            for i in 0..<segments {
+                let shouldBeLit = frac >= Double(i + 1) / Double(segments)
+                if lit[r][i] != shouldBeLit { lit[r][i] = shouldBeLit; changed = true }
+            }
+        }
+        if changed { recolor() }
+    }
+}
+
+// MARK: - Ring meter (around a knob)
+
+/// LED segments following the knob's 270° sweep, showing the speaker output (max of L/R,
+/// −48…0 dBFS). Layer-based: an update only changes segment colours.
+struct HWRingMeter: NSViewRepresentable {
+    @ObservedObject var levels: PanelLevels
+    var segments = 31
+
+    func makeNSView(context: Context) -> RingMeterView {
+        let v = RingMeterView()
+        v.segments = segments
+        return v
+    }
+
+    func updateNSView(_ view: RingMeterView, context: Context) {
+        view.update(level: max(levels.left, levels.right))
+    }
+}
+
+final class RingMeterView: NSView {
+    var segments = 31 { didSet { rebuild() } }
+    private var arcs: [CAShapeLayer] = []
+    private var lit: [Bool] = []
+    private var lastLevel = -999.0
+    private var laidOutSize = CGSize.zero
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        rebuild()
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    private func rebuild() {
+        arcs.forEach { $0.removeFromSuperlayer() }
+        arcs = (0..<segments).map { _ in
+            let l = CAShapeLayer()
+            l.fillColor = nil
+            l.lineWidth = 3
+            l.lineCap = .round
+            layer?.addSublayer(l)
+            return l
+        }
+        lit = Array(repeating: false, count: segments)
+        lastLevel = -999
+        laidOutSize = .zero
+        needsLayout = true
+    }
+
+    override func layout() {
+        super.layout()
+        guard bounds.size != laidOutSize else { return }
+        laidOutSize = bounds.size
+        let c = CGPoint(x: bounds.midX, y: bounds.midY)
+        let r = min(bounds.width, bounds.height) / 2 - 2
+        let step = 270.0 / Double(segments)
+        for (i, l) in arcs.enumerated() {
+            // Same sweep as the knob: from -135° (7 o'clock) clockwise to +135°.
+            let a0 = -135 + step * Double(i) + step * 0.15
+            let a1 = a0 + step * 0.7
+            let path = CGMutablePath()
+            path.addArc(center: c, radius: r, startAngle: Self.rad(a0), endAngle: Self.rad(a1), clockwise: !isFlipped)
+            l.path = path
+            l.shadowPath = path.copy(strokingWithWidth: l.lineWidth, lineCap: .round, lineJoin: .round, miterLimit: 1)
+            l.shadowOffset = .zero
+            l.shadowRadius = 3
+        }
+        recolor()
+    }
+
+    /// Knob angle (0 = up, clockwise positive) → Core Graphics angle in this view's coordinates.
+    private func rad(_ deg: Double) -> CGFloat { Self.rad(deg) }
+    private static func rad(_ deg: Double) -> CGFloat { CGFloat((90 - deg) * .pi / 180) }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        recolor()
+    }
+
+    private func recolor() {
+        var off = NSColor.gray.cgColor
+        var on: [CGColor] = []
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            off = NSColor(Skin.groove).cgColor
+            on = (0..<segments).map { i in
+                let t = Double(i + 1) / Double(segments)
+                return NSColor(t > 0.9 ? Skin.red : t > 0.75 ? Skin.amber : Skin.green).cgColor
+            }
+        }
+        let glow = Skin.ledGlowOpacity(for: effectiveAppearance)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for (i, l) in arcs.enumerated() {
+            l.strokeColor = lit[i] ? on[i] : off
+            l.shadowColor = on[i]
+            l.shadowOpacity = lit[i] ? glow : 0
+        }
+        CATransaction.commit()
+    }
+
+    func update(level: Double) {
+        guard abs(level - lastLevel) >= 0.3 else { return }
+        lastLevel = level
+        let frac = min(1, max(0, (level + 48) / 48))
+        var changed = false
+        for i in 0..<segments {
+            let shouldBeLit = frac >= Double(i + 1) / Double(segments)
+            if lit[i] != shouldBeLit { lit[i] = shouldBeLit; changed = true }
+        }
+        if changed { recolor() }
     }
 }

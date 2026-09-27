@@ -24,7 +24,7 @@ for ARCH in $ARCHS; do
   swiftc -O -parse-as-library -target "$ARCH-apple-macos$MIN" \
     -import-objc-header Sources/AudientUSB.h \
     Sources/*.swift "build/AudientUSB-$ARCH.o" \
-    -framework IOKit -framework CoreFoundation -framework CoreAudio \
+    -framework IOKit -framework CoreFoundation -framework CoreAudio -framework Accelerate \
     -o "build/iDVolume-$ARCH"
 done
 
@@ -36,11 +36,18 @@ echo "→ Architectures: $(lipo -archs "$APP/Contents/MacOS/iDVolume")"
 
 cp Info.plist "$APP/Contents/Info.plist"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
-# Sign with a real identity if there is one, so macOS keeps the Accessibility
-# grant across rebuilds. Ad-hoc ("-") works but loses the grant every build.
-IDENTITY="${CODESIGN_IDENTITY:-$(security find-identity -p codesigning 2>/dev/null \
-  | awk -F'"' '/Apple Development|Developer ID Application|iDVolume/ {print $2; exit}')}"
-IDENTITY="${IDENTITY:--}"
+# Signing identity. "iDVolume Release" (from ./make-signing-cert.sh) is preferred: using the
+# same identity for every build and release keeps macOS's Accessibility permission across
+# updates. Otherwise an Apple Development certificate, otherwise ad-hoc ("-").
+if [ -z "${CODESIGN_IDENTITY:-}" ]; then
+  if security find-identity -p codesigning 2>/dev/null | grep -q '"iDVolume Release"'; then
+    CODESIGN_IDENTITY="iDVolume Release"
+  else
+    CODESIGN_IDENTITY="$(security find-identity -p codesigning 2>/dev/null \
+      | awk -F'"' '/Apple Development|Developer ID Application/ {print $2; exit}')"
+  fi
+fi
+IDENTITY="${CODESIGN_IDENTITY:--}"
 echo "→ Signing with: $IDENTITY"
 codesign --force --sign "$IDENTITY" "$APP"
 codesign --force --sign "$IDENTITY" build/idvol

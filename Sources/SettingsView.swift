@@ -93,6 +93,17 @@ struct SettingsView: View {
                 }
                 .labelsHidden().pickerStyle(.segmented).fixedSize()
             }
+            row("Visualiser", hint: "Console strip only. Shows what your Mac is playing — macOS asks for system audio access the first time. Audio is analysed on your Mac and never recorded or sent anywhere.",
+                isOn: $state.spectrumEnabled)
+            HStack {
+                labelBlock("Visualiser style", hint: "Or double-click the visualiser to cycle through them")
+                Spacer()
+                Picker("", selection: $state.visualiserMode) {
+                    ForEach(VisualiserMode.allCases) { Text($0.title).tag($0) }
+                }
+                .labelsHidden().fixedSize()
+            }
+            .disabled(!state.spectrumEnabled)
             Divider().padding(.vertical, 4)
             Text("Choose the layout of the menu bar panel.").font(.system(size: 13)).foregroundStyle(Skin.silk)
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {

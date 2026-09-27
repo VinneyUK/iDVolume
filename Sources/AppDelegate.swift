@@ -23,11 +23,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var localScroll: Any?
     private var globalScroll: Any?
     private var barLevels = (left: -120.0, right: -120.0)
+    private var iconSignature = ""
     private let barMeter = MenuBarMeter()
     private var settingsWindow: NSWindow?
     private var welcomeWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Only one copy may run. Two can start together at login (a login item plus macOS
+        // reopening apps, or copies in different folders); the one that started first stays.
+        if let id = Bundle.main.bundleIdentifier {
+            let me = NSRunningApplication.current
+            let older = NSRunningApplication.runningApplications(withBundleIdentifier: id)
+                .filter { $0 != me && $0.processIdentifier < me.processIdentifier && !$0.isTerminated }
+            if !older.isEmpty {
+                NSApp.terminate(nil)
+                return
+            }
+        }
         state = AppState()
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -47,6 +59,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popover.appearance = state.appearance.nsAppearance
         popover.delegate = self
         state.openSettings = { [weak self] in self?.openSettings() }
+        state.toggleSettings = { [weak self] in
+            guard let self else { return }
+            if self.settingsIsOpen { self.settingsWindow?.performClose(nil) } else { self.openSettings() }
+        }
 
         updateIcon()
         iconObserver = state.objectWillChange.sink { [weak self] _ in
@@ -85,19 +101,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             popover.performClose(sender)
         } else {
             state.refresh()
+            popover.behavior = settingsIsOpen ? .applicationDefined : .transient
             NSApp.activate(ignoringOtherApps: true)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKey()
         }
     }
 
-    func popoverDidShow(_ notification: Notification) { state.panelOpen = true }
+    func popoverWillShow(_ notification: Notification) { state.panelOpen = true }   // start meters before the animation
     func popoverDidClose(_ notification: Notification) { state.panelOpen = false }
 
     // MARK: Settings window and menu
 
     @objc private func openSettings() {
-        popover.performClose(nil)
+        // Keep the panel open alongside Settings, so changes show up in it as you make them.
         if settingsWindow == nil {
             let host = NSHostingController(rootView: SettingsView().environmentObject(state).environmentObject(updater))
             let window = NSWindow(contentViewController: host)
@@ -105,11 +122,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             window.styleMask = [.titled, .closable]
             window.isReleasedWhenClosed = false
             window.appearance = state.appearance.nsAppearance
-            window.center()
+            // Size the window to its content now, so the first centring uses the real size
+            // (otherwise it's centred at a placeholder size and then grows from the corner).
+            host.view.layoutSubtreeIfNeeded()
+            window.setContentSize(host.view.fittingSize)
+            // When Settings closes, the panel goes back to closing on an outside click.
+            NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
+                self?.popover.behavior = .transient
+            }
             settingsWindow = window
         }
+        popover.behavior = .applicationDefined   // don't close when Settings takes focus
+        centreSettings()
         NSApp.activate(ignoringOtherApps: true)
         settingsWindow?.makeKeyAndOrderFront(nil)
+        DispatchQueue.main.async { [weak self] in self?.centreSettings() }   // after any final layout pass
+    }
+
+    private var settingsIsOpen: Bool { settingsWindow?.isVisible ?? false }
+
+    /// Middle of the main screen (the one with the menu bar).
+    private func centreSettings() {
+        guard let w = settingsWindow, let screen = NSScreen.screens.first ?? NSScreen.main else { return }
+        let area = screen.visibleFrame, size = w.frame.size
+        w.setFrameOrigin(NSPoint(x: (area.midX - size.width / 2).rounded(), y: (area.midY - size.height / 2).rounded()))
     }
 
     private func showContextMenu() {
@@ -183,32 +219,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     private func updateIcon() {
         guard let button = statusItem.button else { return }
-        var image: NSImage
-        switch state.menuBarStyle {
-        case .speaker: image = MenuBarIcon.speaker(symbol: state.speakerSymbol)
-        case .monitor: image = MenuBarIcon.monitor(muted: state.muted)
-        case .knob: image = MenuBarIcon.knob(level: state.speakers, muted: state.muted)
-        }
         let showMeter = state.menuBarMeter && state.isConnected
-        if showMeter { image = MenuBarIcon.padded(image, extra: MenuBarMeter.width) }
-        button.image = image
-        button.appearsDisabled = !state.isConnected
+        let showLevel = state.showLevelInMenuBar && state.isConnected
+        // Everything the icon's look depends on. Drawing a new image is the expensive part,
+        // so only do it when this changes.
+        let signature = [state.menuBarStyle.rawValue, state.speakerSymbol, "\(state.muted)",
+                         state.menuBarStyle == .knob ? "\(Int(state.speakers * 64))" : "",
+                         "\(showMeter)", "\(showLevel)", "\(state.isConnected)",
+                         showLevel ? "\(Int((state.speakers * 100).rounded()))" : ""].joined(separator: "|")
+        if signature != iconSignature {
+            iconSignature = signature
+            var image: NSImage
+            switch state.menuBarStyle {
+            case .speaker: image = MenuBarIcon.speaker(symbol: state.speakerSymbol)
+            case .monitor: image = MenuBarIcon.monitor(muted: state.muted)
+            case .knob: image = MenuBarIcon.knob(level: state.speakers, muted: state.muted)
+            }
+            if showMeter { image = MenuBarIcon.padded(image, extra: MenuBarMeter.width) }
+            button.image = image
+            button.appearsDisabled = !state.isConnected
 
-        if state.showLevelInMenuBar && state.isConnected {
-            button.font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
-            button.title = state.muted ? " Muted" : " \(Int((state.speakers * 100).rounded()))%"
-            button.imagePosition = .imageLeading
-        } else {
-            button.title = ""
-            button.imagePosition = .imageOnly
+            if showLevel {
+                button.font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
+                button.title = state.muted ? " Muted" : " \(Int((state.speakers * 100).rounded()))%"
+                button.imagePosition = .imageLeading
+            } else {
+                button.title = ""
+                button.imagePosition = .imageOnly
+            }
         }
-        button.toolTip = state.tooltip
+        let tip = state.tooltip
+        if button.toolTip != tip { button.toolTip = tip }
         updateMeter()
     }
 
     private func updateMeter() {
         guard let button = statusItem.button else { return }
         guard state.menuBarMeter && state.isConnected else { barMeter.hide(); return }
-        barMeter.update(on: button, left: barLevels.left, right: barLevels.right)
+        barMeter.update(on: button, left: barLevels.left, right: barLevels.right, mono: state.mono)
     }
 }

@@ -1,8 +1,10 @@
 #!/bin/bash
-# Builds a downloadable release: universal (Apple Silicon + Intel), ad-hoc signed, zipped.
+# Builds a downloadable release: universal (Apple Silicon + Intel), signed, zipped.
 #   ./release.sh            → dist/iDVolume-<version>.zip (+ .sha256)
-# Ad-hoc signing is deliberate: a personal "Apple Development" certificate is only for
-# your own Macs, and it would embed your certificate name/email in a public download.
+# Signed with the self-signed "iDVolume Release" certificate (./make-signing-cert.sh) so
+# every release has the same identity and macOS keeps the Accessibility permission across
+# updates. (Not your Apple Development certificate: that would put your name/email in a
+# public download.) Falls back to ad-hoc if the certificate doesn't exist.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -18,7 +20,14 @@ if [ "${REPLACE:-0}" != "1" ] && { git rev-parse -q --verify "refs/tags/v$VERSIO
   exit 1
 fi
 echo "→ Releasing $VERSION"
-UNIVERSAL=1 CODESIGN_IDENTITY=- ./build.sh
+if security find-identity -p codesigning 2>/dev/null | grep -q '"iDVolume Release"'; then
+  RELEASE_IDENTITY="iDVolume Release"
+else
+  RELEASE_IDENTITY="-"
+  echo "⚠ No \"iDVolume Release\" certificate — signing ad-hoc, so users will need to re-grant"
+  echo "  Accessibility after this update. Run ./make-signing-cert.sh once to fix that."
+fi
+UNIVERSAL=1 CODESIGN_IDENTITY="$RELEASE_IDENTITY" ./build.sh
 
 mkdir -p dist
 ZIP="dist/iDVolume-$VERSION.zip"

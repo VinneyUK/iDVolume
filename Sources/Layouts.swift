@@ -18,7 +18,7 @@ struct PanelHeader: View {
                 .help(state.lastError ?? (state.isConnected ? "Connected" : "Not connected"))
             Button {
                 if updater.availableRelease != nil { state.settingsTab = .updates }
-                state.openSettings?()
+                state.toggleSettings?()   // second click closes Settings
             } label: {
                 Image(systemName: "gearshape").font(.system(size: 13)).foregroundStyle(Skin.silk)
                     .padding(4).contentShape(Rectangle())
@@ -29,7 +29,7 @@ struct PanelHeader: View {
                     }
             }
             .buttonStyle(.plain)
-            .help(updater.availableRelease.map { "Version \($0.version) is available — open Settings" } ?? "Settings  ⌘,")
+            .help(updater.availableRelease.map { "Version \($0.version) is available — open Settings" } ?? "Settings  ⌘, · click again to close")
             .accessibilityLabel("Settings")
         }
         .padding(.bottom, 12)
@@ -55,7 +55,6 @@ struct SwitchGrid: View {
     }
 }
 
-private func levelText(_ v: Double, muted: Bool) -> String { muted ? "Muted" : "\(dBText(v)) dB" }
 
 // MARK: 1 — Console strip
 
@@ -64,19 +63,32 @@ struct ConsoleStripLayout: View {
     var body: some View {
         VStack(spacing: 0) {
             PanelHeader()
-            HWKnob(value: $state.targetLevel, size: 132, dimmed: state.targetMuted,
-                   label: state.knobTarget == .speakers ? "Speakers" : "Headphones")
-            Readout(text: levelText(state.targetLevel, muted: state.targetMuted), size: 22).padding(.top, 4).padding(.bottom, 14)
-            HStack(spacing: 8) {
+            ZStack {
+                HWRingMeter(levels: state.panelLevels).frame(width: 160, height: 160)   // output level ring
+                HWKnob(value: $state.targetLevel, size: 132, dimmed: state.targetMuted,
+                       label: state.knobTarget == .speakers ? "Speakers" : "Headphones",
+                       onDoubleClick: { state.toggleTargetMute() })
+            }
+            Readout(text: state.levelLabel(state.targetLevel, muted: state.targetMuted), size: 22)
+                .padding(.top, -26)                        // sits in the open bottom of the ring
+                .padding(.bottom, state.showsSpectrum ? 5 : 10)
+            if state.showsSpectrum {
+                SpectrumView(analyzer: state.spectrum, mode: state.visualiserMode) {
+                    state.visualiserMode = state.visualiserMode.next     // double-click: next style
+                }
+                    .frame(height: 62)
+                    .padding(.bottom, 8)
+            }
+            HStack(spacing: 6) {
                 HWKey(label: "Dim", isOn: state.dim) { state.dim.toggle() }
                 HWKey(label: "Alt", isOn: state.alt) { state.alt.toggle() }
-            }.padding(.bottom, 8)
-            HStack(spacing: 8) {
+            }.padding(.bottom, 6)
+            HStack(spacing: 6) {
                 HWKey(label: "Talk", isOn: state.talkback) { state.talkback.toggle() }
                 HWKey(label: "Ø", isOn: state.polarity) { state.polarity.toggle() }
                 HWKey(label: "Mono", isOn: state.mono) { state.mono.toggle() }.disabled(state.polarity)
-            }.padding(.bottom, 12)
-            HStack(spacing: 8) {
+            }.padding(.bottom, 8)
+            HStack(spacing: 6) {
                 outputKey(.speakers, "Speakers", "speaker.wave.2", muted: state.muted)
                 outputKey(.headphones, "Phones", "headphones", muted: state.headphonesMuted)
             }
@@ -107,9 +119,10 @@ struct FaceplateLayout: View {
             PanelHeader()
             HStack(alignment: .center, spacing: 16) {
                 VStack(spacing: 4) {
-                    HWKnob(value: $state.speakers, size: 150, ring: .segments, dimmed: state.muted, label: "Speakers")
+                    HWKnob(value: $state.speakers, size: 150, ring: .segments, dimmed: state.muted, label: "Speakers",
+                           onDoubleClick: { state.muted.toggle() })
                     SilkText("Speakers")
-                    Readout(text: levelText(state.speakers, muted: state.muted), size: 20)
+                    Readout(text: state.levelLabel(state.speakers, muted: state.muted), size: 20)
                 }
                 VStack(spacing: 7) {
                     HWKey(label: "Mute", isOn: state.muted, led: Skin.red, flash: true, horizontal: true, compact: true) { state.muted.toggle() }
@@ -122,10 +135,11 @@ struct FaceplateLayout: View {
             }
             Divider().padding(.vertical, 12)
             HStack(spacing: 12) {
-                HWKnob(value: $state.headphones, size: 46, dimmed: state.headphonesMuted, label: "Headphones")
+                HWKnob(value: $state.headphones, size: 46, dimmed: state.headphonesMuted, label: "Headphones",
+                       onDoubleClick: { state.headphonesMuted.toggle() })
                 VStack(alignment: .leading, spacing: 1) {
                     SilkText("Headphones")
-                    Readout(text: levelText(state.headphones, muted: state.headphonesMuted), size: 15)
+                    Readout(text: state.levelLabel(state.headphones, muted: state.headphonesMuted), size: 15)
                 }
                 Spacer()
                 HWKey(label: "Mute", isOn: state.headphonesMuted, led: Skin.red, flash: true) { state.headphonesMuted.toggle() }
@@ -154,8 +168,8 @@ struct TwinKnobsLayout: View {
 
     private func column(level: Binding<Double>, muted: Bool, label: String, icon: String, mute: @escaping () -> Void) -> some View {
         VStack(spacing: 6) {
-            HWKnob(value: level, size: 104, dimmed: muted, label: label)
-            Readout(text: levelText(level.wrappedValue, muted: muted), size: 17)
+            HWKnob(value: level, size: 104, dimmed: muted, label: label, onDoubleClick: mute)
+            Readout(text: state.levelLabel(level.wrappedValue, muted: muted), size: 17)
             HWKey(label: label, icon: icon, isOn: muted, led: Skin.red, flash: true, action: mute)
         }
         .frame(maxWidth: .infinity)
@@ -187,8 +201,8 @@ struct FaderBankLayout: View {
 
     private func strip(level: Binding<Double>, muted: Bool, label: String, mute: @escaping () -> Void) -> some View {
         VStack(spacing: 6) {
-            Readout(text: muted ? "—" : dBText(level.wrappedValue), size: 15)
-            HWFader(value: level, height: 196, label: label)
+            Readout(text: muted ? "—" : state.levelValue(level.wrappedValue), size: 15)
+            HWFader(value: level, height: 196, label: label, onDoubleClick: mute)
             SilkText(label)
             HWKey(label: "Mute", isOn: muted, led: Skin.red, flash: true, compact: true, action: mute).frame(width: 58)
         }
@@ -207,12 +221,9 @@ struct RingFocusLayout: View {
                         selection: $state.knobTarget)
             ZStack(alignment: .bottom) {
                 HWKnob(value: $state.targetLevel, size: 196, ring: .segments, segments: 31, dimmed: state.targetMuted,
-                       label: state.knobTarget == .speakers ? "Speakers" : "Headphones")
-                Button { state.toggleTargetMute() } label: {
-                    Readout(text: levelText(state.targetLevel, muted: state.targetMuted), size: 20, alert: state.targetMuted)
-                }
-                .buttonStyle(.plain)
-                .help(state.targetMuted ? "Unmute" : "Mute")
+                       label: state.knobTarget == .speakers ? "Speakers" : "Headphones",
+                       onDoubleClick: { state.toggleTargetMute() })
+                Readout(text: state.levelLabel(state.targetLevel, muted: state.targetMuted), size: 20, alert: state.targetMuted)
             }
             .padding(.vertical, 10)
             HStack {
@@ -250,8 +261,9 @@ struct RackUnitLayout: View {
         HStack(spacing: 16) {
             screws
             VStack(spacing: 2) {
-                HWKnob(value: $state.speakers, size: 84, dimmed: state.muted, label: "Speakers")
-                Readout(text: levelText(state.speakers, muted: state.muted), size: 14)
+                HWKnob(value: $state.speakers, size: 84, dimmed: state.muted, label: "Speakers",
+                       onDoubleClick: { state.muted.toggle() })
+                Readout(text: state.levelLabel(state.speakers, muted: state.muted), size: 14)
             }
             VStack(spacing: 10) {
                 PanelHeader().padding(.bottom, -12)
@@ -267,7 +279,8 @@ struct RackUnitLayout: View {
             }
             .frame(width: 262)
             VStack(spacing: 3) {
-                HWKnob(value: $state.headphones, size: 52, ring: .ticks, dimmed: state.headphonesMuted, label: "Headphones")
+                HWKnob(value: $state.headphones, size: 52, ring: .ticks, dimmed: state.headphonesMuted, label: "Headphones",
+                       onDoubleClick: { state.headphonesMuted.toggle() })
                 SilkText("Phones", dim: true)
                 HWKey(label: "Mute", isOn: state.headphonesMuted, led: Skin.red, flash: true, compact: true) { state.headphonesMuted.toggle() }
                     .frame(width: 60)
@@ -306,8 +319,8 @@ struct CompactLayout: View {
                 }
                 .buttonStyle(.plain)
                 .help(state.targetMuted ? "Unmute" : "Mute")
-                HWSlider(value: $state.targetLevel, thin: true)
-                Readout(text: state.targetMuted ? "—" : dBText(state.targetLevel), size: 14).frame(width: 38, alignment: .trailing)
+                HWSlider(value: $state.targetLevel, thin: true, onDoubleClick: { state.toggleTargetMute() })
+                Readout(text: state.targetMuted ? "—" : state.levelValue(state.targetLevel), size: 14).frame(width: 38, alignment: .trailing)
             }
             HWSegmented(options: [SegOption(KnobTarget.speakers, "Speakers", alert: state.muted),
                                   SegOption(KnobTarget.headphones, "Phones", alert: state.headphonesMuted)],
@@ -344,14 +357,19 @@ struct MeterBridgeLayout: View {
             HStack(alignment: .firstTextBaseline) {
                 SilkText("Speakers")
                 Spacer()
-                Text(state.muted ? "Muted" : dBText(state.speakers))
+                Text(state.muted ? "Muted" : state.levelValue(state.speakers))
                     .font(Skin.readoutFont(40)).foregroundStyle(state.muted ? Skin.red : Skin.ink)
-                if !state.muted { Text("dB").font(Skin.readoutFont(16)).foregroundStyle(Skin.silkDim) }
+                    .onTapGesture(count: 2) { state.levelsInPercent.toggle() }
+                    .help("Double-click to show dB or %")
+                if !state.muted && !state.levelUnit.isEmpty {
+                    Text(state.levelUnit).font(Skin.readoutFont(16)).foregroundStyle(Skin.silkDim)
+                }
             }
-            HWSlider(value: $state.speakers, label: "Speakers")
+            HWSlider(value: $state.speakers, label: "Speakers", onDoubleClick: { state.muted.toggle() })
             HStack(spacing: 8) {
                 Image(systemName: "headphones").foregroundStyle(Skin.silkDim)
-                HWSlider(value: $state.headphones, thin: true, label: "Headphones")
+                HWSlider(value: $state.headphones, thin: true, label: "Headphones",
+                         onDoubleClick: { state.headphonesMuted.toggle() })
                 HWKey(label: "Mute", isOn: state.headphonesMuted, led: Skin.red, flash: true, compact: true) { state.headphonesMuted.toggle() }
                     .frame(width: 62)
             }
@@ -376,19 +394,21 @@ struct SplitSurfaceLayout: View {
         VStack(spacing: 12) {
             PanelHeader().padding(.bottom, -12)
             HStack(spacing: 14) {
-                HWKnob(value: $state.speakers, size: 96, dimmed: state.muted, label: "Speakers")
+                HWKnob(value: $state.speakers, size: 96, dimmed: state.muted, label: "Speakers",
+                       onDoubleClick: { state.muted.toggle() })
                 VStack(alignment: .leading, spacing: 8) {
                     SilkText("Speakers")
-                    Readout(text: levelText(state.speakers, muted: state.muted), size: 24)
+                    Readout(text: state.levelLabel(state.speakers, muted: state.muted), size: 24)
                     HWKey(label: "Mute", icon: "speaker.wave.2", isOn: state.muted, led: Skin.red, flash: true, horizontal: true) { state.muted.toggle() }
                 }
             }
             SwitchGrid()
             HStack(spacing: 12) {
-                HWKnob(value: $state.headphones, size: 54, dimmed: state.headphonesMuted, label: "Headphones")
+                HWKnob(value: $state.headphones, size: 54, dimmed: state.headphonesMuted, label: "Headphones",
+                       onDoubleClick: { state.headphonesMuted.toggle() })
                 VStack(alignment: .leading, spacing: 1) {
                     SilkText("Headphones")
-                    Readout(text: levelText(state.headphones, muted: state.headphonesMuted), size: 16)
+                    Readout(text: state.levelLabel(state.headphones, muted: state.headphonesMuted), size: 16)
                 }
                 Spacer()
                 HWKey(label: "Mute", icon: "headphones", isOn: state.headphonesMuted, led: Skin.red, flash: true, horizontal: true) { state.headphonesMuted.toggle() }
@@ -411,8 +431,8 @@ struct IlluminatedKeysLayout: View {
     var body: some View {
         VStack(spacing: 12) {
             PanelHeader().padding(.bottom, -12)
-            fader("Speakers", level: $state.speakers, muted: state.muted)
-            fader("Headphones", level: $state.headphones, muted: state.headphonesMuted)
+            fader("Speakers", level: $state.speakers, muted: state.muted) { state.muted.toggle() }
+            fader("Headphones", level: $state.headphones, muted: state.headphonesMuted) { state.headphonesMuted.toggle() }
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
                 HWKey(label: "Mute", isOn: state.muted, backlit: true, mutedStyle: true) { state.muted.toggle() }
                 HWKey(label: "Dim", isOn: state.dim, backlit: true) { state.dim.toggle() }
@@ -432,14 +452,14 @@ struct IlluminatedKeysLayout: View {
         .frame(width: 268)
     }
 
-    private func fader(_ label: String, level: Binding<Double>, muted: Bool) -> some View {
+    private func fader(_ label: String, level: Binding<Double>, muted: Bool, mute: @escaping () -> Void) -> some View {
         VStack(spacing: 2) {
             HStack {
                 SilkText(label)
                 Spacer()
-                Readout(text: levelText(level.wrappedValue, muted: muted), size: 14, alert: muted)
+                Readout(text: state.levelLabel(level.wrappedValue, muted: muted), size: 14, alert: muted)
             }
-            HWSlider(value: level, label: label)
+            HWSlider(value: level, label: label, onDoubleClick: mute)
             HStack {
                 ForEach(["−∞", "−48", "−32", "−16", "0"], id: \.self) { t in
                     if t != "−∞" { Spacer() }

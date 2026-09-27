@@ -135,8 +135,10 @@ The app reads the interface's current level when it starts, so the slider always
 The keyboard volume keys need **Accessibility** access (System Settings → Privacy & Security
 → Accessibility). The app asks the first time.
 
-`build.sh` signs with your Apple Development certificate if you have one, which keeps that
-permission across rebuilds. Without one it signs ad-hoc and macOS forgets the permission each
+`build.sh` and `release.sh` sign with a self-signed **"iDVolume Release"** certificate if you
+have one (create it once with `./make-signing-cert.sh`), otherwise your Apple Development
+certificate. Signing everything with the same identity keeps that permission across rebuilds
+and updates. Without one it signs ad-hoc and macOS forgets the permission each
 build — reset it with:
 
 ```sh

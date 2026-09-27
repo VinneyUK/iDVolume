@@ -38,7 +38,7 @@ enum PanelLayout: String, CaseIterable, Identifiable {
     }
     var summary: String {
         switch self {
-        case .consoleStrip: return "One knob for the selected output, button matrix below"
+        case .consoleStrip: return "One knob with a level ring, button matrix below"
         case .faceplate: return "LED-ring knob with a switch column; headphones on a trim knob"
         case .twinKnobs: return "Equal knobs for speakers and headphones"
         case .faderBank: return "Two long-throw faders with a switch column"
@@ -50,7 +50,7 @@ enum PanelLayout: String, CaseIterable, Identifiable {
         case .illuminatedKeys: return "Backlit keys and long horizontal faders"
         }
     }
-    var usesMeter: Bool { self == .rackUnit || self == .meterBridge }
+    var usesMeter: Bool { self == .rackUnit || self == .meterBridge || self == .consoleStrip }
 }
 
 /// Light, Dark, or follow the system.
@@ -85,7 +85,8 @@ final class AppState: ObservableObject {
         static let speakers = "speakers", headphones = "headphones"
         static let keys = "volumeKeys", onlyAudient = "keysOnlyWhenAudient", osd = "osdEnabled"
         static let style = "menuBarStyle", showLevel = "showLevelInMenuBar", restore = "restoreOnPowerUp"
-        static let barMeter = "menuBarMeter", idFollows = "idLedFollows"
+        static let barMeter = "menuBarMeter", idFollows = "idLedFollows", percent = "levelsInPercent"
+        static let spectrum = "spectrumVisualiser", visMode = "visualiserMode"
         static let layout = "panelLayout", knobTarget = "knobTarget", appearance = "appearance"
 
     }
@@ -95,15 +96,35 @@ final class AppState: ObservableObject {
     private let hud = VolumeHUD()
     /// Opens the Settings window (set by the app delegate).
     var openSettings: (() -> Void)?
+    /// Opens Settings, or closes it if it's already open (the panel's gear).
+    var toggleSettings: (() -> Void)?
     /// The Settings window's selected section.
     @Published var settingsTab: SettingsView.Tab = .panel
 
     /// Set by the app delegate when the popover opens/closes.
-    var panelOpen = false { didSet { updateMeterPolling() } }
+    var panelOpen = false { didSet { updateMeterPolling(); updateSpectrum() } }
+
+    /// Spectrum visualiser (Console strip). Taps system audio only while it's on screen.
+    let spectrum = SpectrumAnalyzer()
+    @Published var spectrumEnabled: Bool {
+        didSet { defaults.set(spectrumEnabled, forKey: K.spectrum); updateSpectrum() }
+    }
+    var showsSpectrum: Bool { spectrumEnabled && panelLayout == .consoleStrip }
+    /// Which visualiser style is shown (Settings → Panel, or double-click the visualiser). Saved.
+    @Published var visualiserMode: VisualiserMode {
+        didSet {
+            defaults.set(visualiserMode.rawValue, forKey: K.visMode)
+            spectrum.mode = visualiserMode
+        }
+    }
+
+    private func updateSpectrum() {
+        if panelOpen && showsSpectrum { spectrum.start() } else { spectrum.stop() }
+    }
     let panelLevels = PanelLevels()
 
     @Published var panelLayout: PanelLayout {
-        didSet { defaults.set(panelLayout.rawValue, forKey: K.layout); updateMeterPolling() }
+        didSet { defaults.set(panelLayout.rawValue, forKey: K.layout); updateMeterPolling(); updateSpectrum() }
     }
     @Published var appearance: AppAppearance {
         didSet { defaults.set(appearance.rawValue, forKey: K.appearance) }
@@ -111,6 +132,10 @@ final class AppState: ObservableObject {
     @Published var knobTarget: KnobTarget {
         didSet { defaults.set(knobTarget.rawValue, forKey: K.knobTarget) }
     }
+
+    /// Meters are read every 40 ms (25×/s) and fall at 35 dB/s.
+    static let meterIntervalMs = 40
+    static let meterFallPerTick = 35.0 * Double(meterIntervalMs) / 1000
 
     /// Menu bar meter feed: speaker L/R in dBFS.
     var onBarMeter: ((Double, Double) -> Void)?
@@ -272,6 +297,10 @@ final class AppState: ObservableObject {
     @Published var showLevelInMenuBar: Bool {
         didSet { defaults.set(showLevelInMenuBar, forKey: K.showLevel) }
     }
+    /// Show levels as % instead of dB (double-click any level readout). Saved.
+    @Published var levelsInPercent: Bool {
+        didSet { defaults.set(levelsInPercent, forKey: K.percent) }
+    }
     @Published var menuBarMeter: Bool {
         didSet {
             defaults.set(menuBarMeter, forKey: K.barMeter)
@@ -301,6 +330,9 @@ final class AppState: ObservableObject {
         menuBarStyle = MenuBarStyle(rawValue: defaults.string(forKey: K.style) ?? "") ?? .knob
         showLevelInMenuBar = defaults.bool(forKey: K.showLevel)
         menuBarMeter = defaults.bool(forKey: K.barMeter)
+        levelsInPercent = defaults.bool(forKey: K.percent)
+        spectrumEnabled = defaults.object(forKey: K.spectrum) as? Bool ?? true
+        visualiserMode = VisualiserMode(rawValue: defaults.string(forKey: K.visMode) ?? "") ?? .spectrum
         idLedFollows = defaults.object(forKey: K.idFollows) as? Bool ?? true
         panelLayout = PanelLayout(rawValue: defaults.string(forKey: K.layout) ?? "") ?? .consoleStrip
         knobTarget = KnobTarget(rawValue: defaults.string(forKey: K.knobTarget) ?? "") ?? .speakers
@@ -330,6 +362,7 @@ final class AppState: ObservableObject {
 
         refresh()
         updateKeyTap()
+        spectrum.mode = visualiserMode
         writer.startPolling()
         updateMeterPolling()
         timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in self?.tick() }
@@ -360,7 +393,18 @@ final class AppState: ObservableObject {
     }
 
     func fixKeyProblem() {
-        if !accessibilityGranted { requestAccessibility() } else { restartKeyTap() }
+        guard !accessibilityGranted else { restartKeyTap(); return }
+        // After an update the Accessibility switch can still show "on" but belong to the
+        // previous version's signature. Clear iDVolume's own entry first, so macOS asks
+        // afresh for this version instead of the user having to remove and re-add it.
+        if let id = Bundle.main.bundleIdentifier {
+            let reset = Process()
+            reset.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+            reset.arguments = ["reset", "Accessibility", id]
+            try? reset.run()
+            reset.waitUntilExit()
+        }
+        requestAccessibility()
     }
 
     // MARK: - Actions
@@ -488,8 +532,8 @@ final class AppState: ObservableObject {
 
     private func showHUD() {
         guard osdEnabled else { return }
-        hud.show(level: speakers, muted: muted,
-                 title: dim ? "Speakers · Dim" : "Speakers", symbol: speakerSymbol)
+        hud.show(level: speakers, muted: muted, title: deviceName ?? "Speakers",
+                 status: muted ? "Muted" : (dim ? "Dim" : ""))
     }
 
     private func handle(status: Int32, pid: Int32) {
@@ -501,12 +545,15 @@ final class AppState: ObservableObject {
             loadProfile()
         }
         if newPID != nil { applySafeMode() }   // the C layer resets to automatic on every reconnect
-        deviceName = pid >= 0 ? String(cString: aud_product_name(pid)) : nil
+        // Only publish real changes: every published change redraws the menu bar icon.
+        let name: String? = pid >= 0 ? String(cString: aud_product_name(pid)) : nil
+        if name != deviceName { deviceName = name }
         if !wasConnected && isConnected {
             awaitingFirstPoll = true      // decide on power-up restore once we've read the level
             lastDeviceSpeakerRaw = nil
         }
-        lastError = status == 0 ? nil : String(format: "USB request failed (0x%08X)", UInt32(bitPattern: status))
+        let error: String? = status == 0 ? nil : String(format: "USB request failed (0x%08X)", UInt32(bitPattern: status))
+        if error != lastError { lastError = error }
     }
 
     // MARK: - Learned profiles (Interface setup assistant)
@@ -562,9 +609,13 @@ final class AppState: ObservableObject {
         writer.perform { aud_set_mode(mode) }
     }
 
+    private var panelMeterWasOn = false
+
     private func updateMeterPolling() {
         let panelMeter = panelOpen && panelLayout.usesMeter
         writer.setMetering(menuBarMeter || panelMeter)
+        if panelMeter && !panelMeterWasOn { writer.readMetersNow() }   // don't wait for the next tick
+        panelMeterWasOn = panelMeter
         if !menuBarMeter {
             barLeft = Self.silence
             barRight = Self.silence
@@ -575,18 +626,37 @@ final class AppState: ObservableObject {
     private func handleMeters(_ outs: [UInt16]) {
         guard outs.count >= 2 else { return }
         let l = Self.dB(outs[0]), r = Self.dB(outs[1])
+        let fall = Self.meterFallPerTick
         if menuBarMeter {
-            barLeft = max(l, max(Self.silence, barLeft - 1.3))    // smooth fall
-            barRight = max(r, max(Self.silence, barRight - 1.3))
-            onBarMeter?(barLeft, barRight)
+            let newL = max(l, max(Self.silence, barLeft - fall))    // smooth fall
+            let newR = max(r, max(Self.silence, barRight - fall))
+            if abs(newL - barLeft) >= 0.3 || abs(newR - barRight) >= 0.3 {
+                barLeft = newL
+                barRight = newR
+                onBarMeter?(barLeft, barRight)
+            }
         }
         if panelOpen && panelLayout.usesMeter {   // only while someone can see it
-            panelLevels.left = max(l, max(Self.silence, panelLevels.left - 1.3))
-            panelLevels.right = max(r, max(Self.silence, panelLevels.right - 1.3))
+            let newL = max(l, max(Self.silence, panelLevels.left - fall))
+            let newR = max(r, max(Self.silence, panelLevels.right - fall))
+            if abs(newL - panelLevels.left) >= 0.3 { panelLevels.left = newL }
+            if abs(newR - panelLevels.right) >= 0.3 { panelLevels.right = newR }
         }
     }
 
     // MARK: - Convenience for the panels
+
+    /// "−29 dB" or "55%", or "Muted".
+    func levelLabel(_ v: Double, muted: Bool) -> String {
+        if muted { return "Muted" }
+        return levelsInPercent ? "\(Int((v * 100).rounded()))%" : "\(dBText(v)) dB"
+    }
+    /// The number alone: "−29" or "55%".
+    func levelValue(_ v: Double) -> String {
+        levelsInPercent ? "\(Int((v * 100).rounded()))%" : dBText(v)
+    }
+    /// "dB", or nothing when showing %.
+    var levelUnit: String { levelsInPercent ? "" : "dB" }
 
     /// Level of whichever output a single-knob layout controls.
     var targetLevel: Double {
@@ -638,12 +708,16 @@ final class USBWriter: @unchecked Sendable {
     private var meterTimer: DispatchSourceTimer?
 
     /// Read the output meters 20×/s while the menu bar meter is on.
+    /// One reading straight away (e.g. the panel just opened).
+    func readMetersNow() { queue.async { self.readMeters(force: true) } }
+
+    /// Read the output meters while a meter is showing (25×/s).
     func setMetering(_ on: Bool) {
         queue.async { [weak self] in
             guard let self else { return }
             if on, self.meterTimer == nil {
                 let t = DispatchSource.makeTimerSource(queue: self.queue)
-                t.schedule(deadline: .now(), repeating: .milliseconds(50))
+                t.schedule(deadline: .now(), repeating: .milliseconds(AppState.meterIntervalMs))
                 t.setEventHandler { [weak self] in self?.readMeters() }
                 t.resume()
                 self.meterTimer = t
@@ -654,10 +728,22 @@ final class USBWriter: @unchecked Sendable {
         }
     }
 
-    private func readMeters() {
+    private var lastMeterOuts: [UInt16] = []
+    private var meterRepeats = 0
+
+    private func readMeters(force: Bool = false) {
         guard !safeMode, aud_current_pid() >= 0, pending.isEmpty, !scheduled else { return }
         var outs = [UInt16](repeating: 0, count: 6)
         guard aud_read_output_meters(&outs) == 0 else { return }
+        // Identical readings (typically silence) are still passed on now and then so the
+        // display's fall-back animation can finish, but not 20 times a second.
+        if outs == lastMeterOuts && !force {
+            meterRepeats += 1
+            if meterRepeats % 4 != 0 { return }
+        } else {
+            meterRepeats = 0
+            lastMeterOuts = outs
+        }
         DispatchQueue.main.async { self.onMeters?(outs) }
     }
 

@@ -2,6 +2,31 @@
 
 All notable changes to iDVolume. Versions are listed newest first.
 
+## 1.8.3
+
+- **Visualiser** in Console strip, showing what your Mac is playing (macOS 14.2 or later), in eight styles: Spectrum, Bars, Spectrogram, Waveform, Oscilloscope, Stereometer (with correlation), Loudness and a needle VU meter. Pick one in Settings → Panel, or double-click the visualiser to cycle through them; the choice is saved. It asks for system audio access the first time; audio is analysed on your Mac and never recorded or sent anywhere. Switch it off in Settings → Panel.
+- **Loudness to ITU-R BS.1770-4**: momentary (400 ms), short-term (3 s) and gated integrated loudness in LUFS, plus true peak in dBTP (4× oversampled). Click the display to reset integrated.
+- Console strip's level readout sits closer to the dial.
+- **Double-click a knob, fader or slider to mute or unmute** that output. (In Ring focus, muting moves from the readout to the knob.)
+- **Double-click a level readout to switch between dB and %.** The choice is saved.
+- Settings opens in the middle of the main screen, and the panel stays open alongside it so you can see changes as you make them. Clicking the panel's gear again closes Settings.
+- **LED glow**: lit segments in the panel's meters glow in their own colour, like real LEDs (stronger in the dark finish).
+- **Console strip** has a level meter: a ring of LEDs around the knob showing the speaker output.
+- The menu bar meter shows a single mono bar while Mono is on.
+- Meters are a little livelier: read 25 times a second (was 20) and fall a touch faster.
+- Lower CPU and memory use: the panel's meter is now built from lightweight layers instead of being redrawn as an image 20 times a second (which was pushing memory past 200 MB while it was open); the menu bar icon is only redrawn when its appearance actually changes; the menu bar meter only redraws on a visible change and caches its colour; identical meter readings (silence) are dropped at source; and key LEDs only animate while flashing.
+
+## 1.8.2
+
+- **Accessibility permission now survives updates.** Releases are signed with the same identity every time, so macOS recognises each update as the same app. (One last time after installing this version, you may need to allow it again.)
+- **Fix… clears a stale permission itself.** If the switch in Settings shows on but belongs to an older version, Fix… resets iDVolume's entry and asks macOS again — no need to remove and re-add the app.
+
+## 1.8.1
+
+- **New on-screen display in Apple's style**: device name, a slim level bar between speaker icons and a row of step dots, on Liquid Glass (macOS 26) or the classic frosted blur on earlier versions.
+- **The panel tells you when the volume keys aren't working** — usually because macOS dropped iDVolume's Accessibility permission after an update — with a **Fix…** button.
+- Only one copy of iDVolume runs at a time. Previously two could start at login (for example when macOS reopened the app as well as starting it as a login item).
+
 ## 1.8
 
 - **Settings → Setup** (now first in Settings) asks which interface you have: **iD14 MKII** for full features, or **Another iD model** for compatibility mode and a setup wizard. It's pre-selected from your interface's USB ID and saved per interface.

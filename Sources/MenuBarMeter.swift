@@ -8,6 +8,11 @@ final class MenuBarMeter {
     private let host = CALayer()
     private let tracks = [CALayer(), CALayer()]
     private let fills = [CALayer(), CALayer()]
+    private var lastLeft = -999.0, lastRight = -999.0
+    private var lastFrame = CGRect.zero
+    private var lastMono = false
+    private var cachedColor: CGColor?
+    private var cachedAppearance: NSAppearance.Name?
 
     init() {
         for i in 0..<2 {
@@ -24,17 +29,31 @@ final class MenuBarMeter {
         if host.superlayer == nil { button.layer?.addSublayer(host) }
     }
 
-    func hide() { host.isHidden = true }
+    func hide() {
+        host.isHidden = true
+        lastLeft = -999; lastRight = -999
+    }
 
-    /// Speaker L/R in dBFS; bars span −48…0.
-    func update(on button: NSStatusBarButton, left: Double, right: Double) {
+    /// Speaker L/R in dBFS; bars span −48…0. In mono, a single centred bar shows the level.
+    func update(on button: NSStatusBarButton, left: Double, right: Double, mono: Bool = false) {
         let imageRect = button.cell?.imageRect(forBounds: button.bounds) ?? button.bounds
         let frame = CGRect(x: imageRect.maxX - Self.width + 1, y: imageRect.minY + 2,
                            width: Self.width - 1, height: max(4, imageRect.height - 4))
 
-        var color = NSColor.labelColor.cgColor
-        button.effectiveAppearance.performAsCurrentDrawingAppearance {
-            color = NSColor.labelColor.cgColor
+        // Nothing visible changed (less than ~0.3 dB): don't touch the layers at all.
+        if !host.isHidden, frame == lastFrame, mono == lastMono,
+           abs(left - lastLeft) < 0.3, abs(right - lastRight) < 0.3 { return }
+        lastLeft = left; lastRight = right; lastFrame = frame; lastMono = mono
+
+        // The label colour only changes with the menu bar's appearance; resolve it once per change.
+        let appearance = button.effectiveAppearance.name
+        if cachedColor == nil || cachedAppearance != appearance {
+            var color = NSColor.labelColor.cgColor
+            button.effectiveAppearance.performAsCurrentDrawingAppearance { color = NSColor.labelColor.cgColor }
+            cachedColor = color
+            cachedAppearance = appearance
+            for t in tracks { t.backgroundColor = color.copy(alpha: 0.25) }
+            for f in fills { f.backgroundColor = color }
         }
         func frac(_ db: Double) -> CGFloat { CGFloat(min(1, max(0, (db + 48) / 48))) }
 
@@ -42,15 +61,24 @@ final class MenuBarMeter {
         CATransaction.setDisableActions(true)
         host.isHidden = false
         host.frame = frame
-        for (i, db) in [left, right].enumerated() {
-            let x = CGFloat(i) * 3.5
-            let h = frame.height * frac(db)
-            tracks[i].frame = CGRect(x: x, y: 0, width: 2, height: frame.height)
-            tracks[i].backgroundColor = color.copy(alpha: 0.25)
-            // Grow from the bottom whichever way the button's coordinates run.
+        if mono {
+            // One wider bar in the middle: the summed level (left and right are the same in mono).
+            let h = frame.height * frac(max(left, right))
             let y = button.isFlipped ? frame.height - h : 0
-            fills[i].frame = CGRect(x: x, y: y, width: 2, height: h)
-            fills[i].backgroundColor = color
+            tracks[0].frame = CGRect(x: 1.25, y: 0, width: 3, height: frame.height)
+            fills[0].frame = CGRect(x: 1.25, y: y, width: 3, height: h)
+            tracks[1].isHidden = true
+            fills[1].isHidden = true
+        } else {
+            tracks[1].isHidden = false
+            fills[1].isHidden = false
+            for (i, db) in [left, right].enumerated() {
+                let x = CGFloat(i) * 3.5
+                let h = frame.height * frac(db)
+                tracks[i].frame = CGRect(x: x, y: 0, width: 2, height: frame.height)
+                let y = button.isFlipped ? frame.height - h : 0    // grow from the bottom either way
+                fills[i].frame = CGRect(x: x, y: y, width: 2, height: h)
+            }
         }
         CATransaction.commit()
     }

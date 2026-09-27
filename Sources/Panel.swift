@@ -11,6 +11,9 @@ struct PanelView: View {
             .overlay(alignment: .top) {
                 if !state.isConnected { disconnectedBanner }
             }
+            .overlay(alignment: .bottom) {
+                if state.isConnected, let problem = state.keyProblem { keysBanner(problem.message) }
+            }
             .background(shortcuts)
     }
 
@@ -43,6 +46,21 @@ struct PanelView: View {
         .foregroundStyle(Skin.ink)
         .shadow(color: .black.opacity(0.2), radius: 6, y: 2)
         .padding(.top, 44)
+    }
+
+    /// The volume keys stopped working (usually Accessibility permission lost after an update).
+    private func keysBanner(_ message: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "keyboard.badge.exclamationmark").foregroundStyle(.orange)
+            Text("Volume keys: \(message.lowercased())").font(.system(size: 11, weight: .medium))
+            Button("Fix…") { state.fixKeyProblem() }   // macOS's prompt then links to the right settings page
+            .controlSize(.small)
+        }
+        .padding(.horizontal, 12).padding(.vertical, 7)
+        .background(Capsule().fill(Skin.plateTop))
+        .foregroundStyle(Skin.ink)
+        .shadow(color: .black.opacity(0.2), radius: 6, y: 2)
+        .padding(.bottom, 10)
     }
 
     /// ⌘, opens Settings and ⌘Q quits while the panel has focus.
