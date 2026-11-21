@@ -44,17 +44,26 @@ struct PanelView: View {
     /// Models other than the iD14 MKII: iDVolume sends them nothing.
     private var unsupportedNotice: some View {
         VStack(spacing: 10) {
-            Image(systemName: "exclamationmark.shield").font(.system(size: 26)).foregroundStyle(.orange)
-            Text("\(state.deviceName ?? "This interface") isn't supported yet")
-                .font(.system(size: 14, weight: .semibold)).multilineTextAlignment(.center)
-            Text("iDVolume currently works with the iD14 MKII only. To keep your interface safe, it sends it no commands at all.")
-                .font(.system(size: 12)).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
             if state.isOriginalID14 {
-                Button("Turn On iD14 Support (Beta)…") {
+                // Original iD14: support exists (beta); one click to switch it on.
+                Image(systemName: "flask.fill").font(.system(size: 26)).foregroundStyle(.orange)
+                Text("Original iD14 detected")
+                    .font(.system(size: 14, weight: .semibold)).multilineTextAlignment(.center)
+                Text("Support for this model is in beta. It's built from recordings of Audient's own iD app, and only sends the commands that app was seen sending.")
+                    .font(.system(size: 12)).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+                Button("Turn On Original iD14 Support") { state.mk1SupportEnabled = true }
+                    .keyboardShortcut(.defaultAction)
+                Button("What works on the original iD14…") {
                     state.settingsTab = .setup
                     state.openSettings?()
                 }
-                .controlSize(.small)
+                .buttonStyle(.link).font(.system(size: 11))
+            } else {
+                Image(systemName: "exclamationmark.shield").font(.system(size: 26)).foregroundStyle(.orange)
+                Text("\(state.deviceName ?? "This interface") isn't supported yet")
+                    .font(.system(size: 14, weight: .semibold)).multilineTextAlignment(.center)
+                Text("iDVolume works with the iD14 MKII, and the original iD14 in beta. To keep your interface safe, it sends this one no commands at all.")
+                    .font(.system(size: 12)).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: 6) {
                 Button("Send Interface Report…") { state.sendUnsupportedReport() }

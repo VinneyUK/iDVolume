@@ -30,15 +30,18 @@ enum InterfaceReport {
         var i = 0
         var cls = -1, sub = -1
         var units: [String] = []
-        let spare = Int(aud_control_interface())
+        let originalID14 = pid == 0x0002
         while i + 2 <= d.count, d[i] >= 2 {
             let len = Int(d[i]), type = Int(d[i + 1])
             if type == 0x04, i + 8 < d.count {
                 let num = Int(d[i + 2]), alt = Int(d[i + 3]), eps = Int(d[i + 4])
                 cls = Int(d[i + 5]); sub = Int(d[i + 6]); let proto = Int(d[i + 7])
                 var line = "- Interface \(num), alt \(alt): class \(hex(cls)) subclass \(hex(sub)) protocol \(hex(proto)) — \(className(cls, sub)), \(eps) endpoint(s)"
-                if cls == 0xFE && sub == 0x01 { line += " ⚠ firmware-update (DFU) interface" }
-                if num == spare && alt == 0 { line += " ← the interface iDVolume's commands were addressed to" }
+                if cls == 0xFE && sub == 0x01 { line += " — firmware-update (DFU) interface; iDVolume never sends to it" }
+                if originalID14 && num == 0 && alt == 0 {
+                    line += state.mk1SupportEnabled ? " ← iDVolume's commands go here (original iD14 support on)"
+                                                    : " ← where original iD14 support sends its commands (currently off)"
+                }
                 out.append(line)
             } else if type == 0x21, cls == 0xFE, sub == 0x01, len >= 7 {
                 let attrs = Int(d[i + 2]), detach = word(i + 3), transfer = word(i + 5)

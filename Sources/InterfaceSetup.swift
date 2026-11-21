@@ -737,27 +737,42 @@ struct WelcomeView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 10) {
-                Image(systemName: "exclamationmark.shield.fill").font(.system(size: 22)).foregroundStyle(.orange)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("\(state.deviceName ?? "This interface") isn't supported yet").font(.system(size: 16, weight: .semibold))
-                    Text("iDVolume currently works with the iD14 MKII only").font(.system(size: 12)).foregroundStyle(Skin.silkDim)
-                }
-            }
-            Text("To keep your interface safe, iDVolume won't send it any commands, so its controls are switched off. Sending its Interface Report (read from its USB descriptors; nothing is sent to it) helps work out support for it in future.")
-                .font(.system(size: 13)).fixedSize(horizontal: false, vertical: true)
-            HStack {
-                if state.isOriginalID14 {
-                    Button("Original iD14 Support (Beta)…") {
-                        state.welcomeChoice(.ok)
-                        state.settingsTab = .setup
-                        state.openSettings?()
+            if state.isOriginalID14 {
+                HStack(spacing: 10) {
+                    Image(systemName: "flask.fill").font(.system(size: 22)).foregroundStyle(.orange)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Original iD14 detected").font(.system(size: 16, weight: .semibold))
+                        Text("Support for this model is in beta").font(.system(size: 12)).foregroundStyle(Skin.silkDim)
                     }
                 }
-                Button("Send Interface Report…") { state.welcomeChoice(.sendDetails) }
-                Button("Copy Report") { state.copyInterfaceReport() }
-                Spacer()
-                Button("OK") { state.welcomeChoice(.ok) }.keyboardShortcut(.defaultAction)
+                Text("It's built from recordings of Audient's own iD app controlling an original iD14, and iDVolume only sends the exact commands that app was seen sending. Speaker and headphone level, Mute, Dim, Mono, Polarity and Talkback work; Alt, headphone mute, the iD button setting and meters aren't available yet.")
+                    .font(.system(size: 13)).fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    Button("Not Now") { state.welcomeChoice(.ok) }
+                    Spacer()
+                    Button("Turn On Original iD14 Support") {
+                        state.welcomeChoice(.ok)
+                        state.mk1SupportEnabled = true
+                    }
+                    .keyboardShortcut(.defaultAction)
+                }
+                Text("You can change this at any time in Settings → Setup.").font(.system(size: 11)).foregroundStyle(Skin.silkDim)
+            } else {
+                HStack(spacing: 10) {
+                    Image(systemName: "exclamationmark.shield.fill").font(.system(size: 22)).foregroundStyle(.orange)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(state.deviceName ?? "This interface") isn't supported yet").font(.system(size: 16, weight: .semibold))
+                        Text("iDVolume works with the iD14 MKII, and the original iD14 in beta").font(.system(size: 12)).foregroundStyle(Skin.silkDim)
+                    }
+                }
+                Text("To keep your interface safe, iDVolume won't send it any commands, so its controls are switched off. Sending its Interface Report (read from its USB descriptors; nothing is sent to it) helps work out support for it in future.")
+                    .font(.system(size: 13)).fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    Button("Send Interface Report…") { state.welcomeChoice(.sendDetails) }
+                    Button("Copy Report") { state.copyInterfaceReport() }
+                    Spacer()
+                    Button("OK") { state.welcomeChoice(.ok) }.keyboardShortcut(.defaultAction)
+                }
             }
         }
         .padding(22)

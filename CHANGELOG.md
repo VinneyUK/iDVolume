@@ -2,6 +2,11 @@
 
 All notable changes to iDVolume. Versions are listed newest first.
 
+## 1.9.1
+
+- **Original iD14: one click to turn support on.** When an original iD14 is connected, the panel and the first-connection window now say "Original iD14 detected" and offer **Turn On Original iD14 Support** directly, instead of a "not supported" message that sent you to Settings.
+- **Clearer Interface Report.** The firmware-update interface is now marked as one iDVolume never sends to, and on the original iD14 the report shows where its commands actually go (interface 0). The old wording, "the interface iDVolume's commands were addressed to", described 1.8 and earlier.
+
 ## 1.9
 
 - **Original iD14 support (beta).** Turn it on in Settings → Setup. Built from a recording of Audient's own iD app controlling an original iD14, shared by an owner: iDVolume sends only the exact commands Audient's app was recorded sending, to the same place (the audio control interface — never the firmware-update interface that caused lock-ups in 1.8). Speaker level, headphone level, Mute, Dim, Mono, Polarity, Talkback, the volume keys and the visualiser work. Following the hardware knob should work but still needs confirming on a real original iD14. Alt speakers, headphone mute, the iD button setting and level meters aren't available on this model yet. Thanks to the iD14 owner who recorded and documented the captures.
