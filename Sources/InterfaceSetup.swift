@@ -668,6 +668,8 @@ struct SetupTab: View {
         VStack(alignment: .leading, spacing: 14) {
             if !state.isConnected {
                 Text("Connect your iD interface.").font(.system(size: 13))
+            } else if state.isOriginalID14 {
+                MK1SupportCard()
             } else if state.modelIsVerified {
                 Label("Your \(state.deviceName ?? "iD14 MKII") is fully supported — there's nothing to set up.",
                       systemImage: "checkmark.seal.fill")
@@ -696,6 +698,38 @@ struct SetupTab: View {
     }
 }
 
+// MARK: - Original iD14 (beta)
+
+struct MK1SupportCard: View {
+    @EnvironmentObject var state: AppState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: state.mk1SupportEnabled ? "checkmark.seal.fill" : "flask.fill")
+                    .font(.system(size: 20)).foregroundStyle(state.mk1SupportEnabled ? Skin.green : .orange)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Original iD14 support (beta)").font(.system(size: 14, weight: .semibold))
+                    Text("Built from a recording of Audient's own iD app controlling an original iD14, kindly shared by an owner. iDVolume sends only the exact commands Audient's app was recorded sending, to the same place it sends them. Nothing else is ever sent.")
+                        .font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Toggle("Enable original iD14 support", isOn: $state.mk1SupportEnabled).toggleStyle(.switch)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Works: speaker and headphone level, Mute, Dim, Mono, Polarity, Talkback, volume keys, visualiser. Following the hardware knob should work; please let us know if it does.")
+                Text("Not available on this model yet: Alt speakers, headphone mute, iD button setting, level meters.")
+                    .foregroundStyle(Skin.silk)
+            }
+            .font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Button("Send Interface Report…") { state.sendUnsupportedReport() }
+                Button("Copy Report") { state.copyInterfaceReport() }
+            }
+            .controlSize(.small)
+        }
+    }
+}
+
 // MARK: - First connection of an interface that isn't supported
 
 struct WelcomeView: View {
@@ -713,6 +747,13 @@ struct WelcomeView: View {
             Text("To keep your interface safe, iDVolume won't send it any commands, so its controls are switched off. Sending its Interface Report (read from its USB descriptors; nothing is sent to it) helps work out support for it in future.")
                 .font(.system(size: 13)).fixedSize(horizontal: false, vertical: true)
             HStack {
+                if state.isOriginalID14 {
+                    Button("Original iD14 Support (Beta)…") {
+                        state.welcomeChoice(.ok)
+                        state.settingsTab = .setup
+                        state.openSettings?()
+                    }
+                }
                 Button("Send Interface Report…") { state.welcomeChoice(.sendDetails) }
                 Button("Copy Report") { state.copyInterfaceReport() }
                 Spacer()

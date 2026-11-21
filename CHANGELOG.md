@@ -2,6 +2,10 @@
 
 All notable changes to iDVolume. Versions are listed newest first.
 
+## 1.9
+
+- **Original iD14 support (beta).** Turn it on in Settings → Setup. Built from a recording of Audient's own iD app controlling an original iD14, shared by an owner: iDVolume sends only the exact commands Audient's app was recorded sending, to the same place (the audio control interface — never the firmware-update interface that caused lock-ups in 1.8). Speaker level, headphone level, Mute, Dim, Mono, Polarity, Talkback, the volume keys and the visualiser work. Following the hardware knob should work but still needs confirming on a real original iD14. Alt speakers, headphone mute, the iD button setting and level meters aren't available on this model yet. Thanks to the iD14 owner who recorded and documented the captures.
+
 ## 1.8.6
 
 - **Fixed: volume keys stopped controlling the iD after switching outputs.** After switching to another output (built-in speakers, Bluetooth) and back, the keys could end up controlling a monitor's speakers until iDVolume was restarted. iDVolume now follows output changes as they happen and resets its key capture and visualiser on every switch.

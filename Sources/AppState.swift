@@ -87,6 +87,7 @@ final class AppState: ObservableObject {
         static let style = "menuBarStyle", showLevel = "showLevelInMenuBar", restore = "restoreOnPowerUp"
         static let barMeter = "menuBarMeter", idFollows = "idLedFollows", percent = "levelsInPercent"
         static let spectrum = "spectrumVisualiser", visMode = "visualiserMode"
+        static let mk1 = "originalID14Support"
         static let layout = "panelLayout", knobTarget = "knobTarget", appearance = "appearance"
 
     }
@@ -158,7 +159,20 @@ final class AppState: ObservableObject {
     // MARK: Device status
     @Published var deviceName: String?
     @Published private(set) var devicePID: Int32?
-    var modelIsVerified: Bool { devicePID.map { aud_model_fully_supported($0) != 0 } ?? true }
+    var modelIsVerified: Bool { devicePID.map { aud_model_fully_supported($0) != 0 || ($0 == 0x0002 && mk1SupportEnabled) } ?? true }
+    /// The iD14 MKII: every feature. (The original iD14 has a reduced, capture-verified set.)
+    var hasFullFeatures: Bool { devicePID.map { aud_model_fully_supported($0) != 0 } ?? true }
+    var isOriginalID14: Bool { devicePID == 0x0002 }
+    /// Original iD14 support (beta, opt-in): only commands seen in a capture of Audient's own app.
+    @Published var mk1SupportEnabled: Bool {
+        didSet {
+            defaults.set(mk1SupportEnabled, forKey: K.mk1)
+            let on: Int32 = mk1SupportEnabled ? 1 : 0
+            writer.perform { aud_set_mk1_enabled(on) }
+            loadProfile()
+            refresh()
+        }
+    }
     /// Connected, but a model iDVolume doesn't support: nothing is sent to it at all.
     var unsupportedModel: Bool { isConnected && !modelIsVerified }
 
@@ -216,11 +230,15 @@ final class AppState: ObservableObject {
     }
     /// Headphone mute (feature unit 0x0a ch 5/6) — also toggled by the knob press in headphone mode.
     @Published var headphonesMuted = false {
-        didSet { if !applyingFromDevice { write(.phonesMute, headphonesMuted ? 1 : 0) } }
+        didSet {
+            if !hasFullFeatures { if headphonesMuted { headphonesMuted = false }; return }   // not on the original iD14
+            if !applyingFromDevice { write(.phonesMute, headphonesMuted ? 1 : 0) }
+        }
     }
     @Published var headphones: Double {
         didSet {
             defaults.set(headphones, forKey: K.headphones)
+            guard !applyingFromDevice else { return }
             write(.headphones, aud_raw_from_position(headphones, AUD_DEFAULT_FLOOR_DB))
         }
     }
@@ -247,7 +265,10 @@ final class AppState: ObservableObject {
         didSet { if !applyingFromDevice { write(.mono, mono ? 1 : 0); followLED(.mono, on: mono) } }
     }
     @Published var alt = false {
-        didSet { if !applyingFromDevice { write(.alt, alt ? 1 : 0); followLED(.alt, on: alt) } }
+        didSet {
+            if !hasFullFeatures { if alt { alt = false }; return }   // not on the original iD14
+            if !applyingFromDevice { write(.alt, alt ? 1 : 0); followLED(.alt, on: alt) }
+        }
     }
 
     /// The iD button's chosen function (the dropdown) — nil until read from the interface.
@@ -328,6 +349,7 @@ final class AppState: ObservableObject {
         showLevelInMenuBar = defaults.bool(forKey: K.showLevel)
         menuBarMeter = defaults.bool(forKey: K.barMeter)
         levelsInPercent = defaults.bool(forKey: K.percent)
+        mk1SupportEnabled = defaults.bool(forKey: K.mk1)
         spectrumEnabled = defaults.object(forKey: K.spectrum) as? Bool ?? true
         visualiserMode = VisualiserMode(rawValue: defaults.string(forKey: K.visMode) ?? "") ?? .spectrum
         idLedFollows = defaults.object(forKey: K.idFollows) as? Bool ?? true
@@ -368,6 +390,8 @@ final class AppState: ObservableObject {
         refresh()
         updateKeyTap()
         spectrum.mode = visualiserMode
+        let mk1On: Int32 = mk1SupportEnabled ? 1 : 0
+        writer.perform { aud_set_mk1_enabled(mk1On) }
         writer.startPolling()
         updateMeterPolling()
         timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in self?.tick() }
@@ -445,6 +469,8 @@ final class AppState: ObservableObject {
     }
 
     /// Mirror what the interface reports (knob turns, knob press, front-panel buttons).
+    private var lastDevicePhonesRaw: Int16?
+
     private func applyFromDevice(_ snap: DeviceSnapshot) {
         let now = Date()
         // Ignore readings for a moment after we've written, so a drag isn't yanked back by a stale poll.
@@ -474,6 +500,11 @@ final class AppState: ObservableObject {
                 speakers = position
                 if fromKnob { showHUD() }
             }
+        }
+        if let raw = snap.phonesRaw, settled(.headphones), raw != lastDevicePhonesRaw {
+            lastDevicePhonesRaw = raw
+            let position = aud_position_from_raw(raw, AUD_DEFAULT_FLOOR_DB)
+            if abs(position - headphones) > 0.002 { headphones = position }
         }
         if let m = snap.mute, settled(.mute), m != muted {
             muted = m
@@ -507,7 +538,7 @@ final class AppState: ObservableObject {
     }
 
     private func followLED(_ f: IDButtonFunction, on: Bool) {
-        guard idLedFollows, isConnected, !safeMode else { return }
+        guard idLedFollows, isConnected, !safeMode, hasFullFeatures else { return }
         if on {
             guard f != (temporaryIDButton ?? idButton) else { return }
             temporaryIDButton = f
@@ -690,6 +721,7 @@ enum USBTarget: Hashable { case speakers, headphones, phonesMute, mute, dim, pol
 
 struct DeviceSnapshot {
     var speakerRaw: Int16?
+    var phonesRaw: Int16?            // original iD14 only
     var mute: Bool?
     var phonesMute: Bool?
     var dim: Bool?
@@ -736,7 +768,7 @@ final class USBWriter: @unchecked Sendable {
     private var meterRepeats = 0
 
     private func readMeters(force: Bool = false) {
-        guard !safeMode, aud_current_pid() >= 0, pending.isEmpty, !scheduled else { return }
+        guard !safeMode, aud_model_fully_supported(aud_current_pid()) != 0, aud_current_pid() >= 0, pending.isEmpty, !scheduled else { return }
         var outs = [UInt16](repeating: 0, count: 6)
         guard aud_read_output_meters(&outs) == 0 else { return }
         // Identical readings (typically silence) are still passed on now and then so the
@@ -790,6 +822,12 @@ final class USBWriter: @unchecked Sendable {
 
     private func poll() {
         guard !safeMode, aud_current_pid() >= 0, pending.isEmpty, !scheduled else { return }
+        // Original iD14: no change queue. Read the controls directly (as Audient's app does),
+        // five times a second.
+        if aud_mk1_active() != 0 {
+            if Date().timeIntervalSince(lastFullRead) > 0.2 { fullRead() }
+            return
+        }
         if Date().timeIntervalSince(lastFullRead) > 2.0 {
             fullRead()
             return
@@ -835,6 +873,17 @@ final class USBWriter: @unchecked Sendable {
         pollFailures = 0
         snap.speakerRaw = raw
         snap.mute = readSwitch(AUD_SW_MUTE)
+        if aud_mk1_active() != 0 {
+            // Only the reads proven by the capture of Audient's app.
+            var hp: Int16 = 0
+            if aud_read_headphone_raw(&hp) == 0 { snap.phonesRaw = hp }
+            snap.dim = readSwitch(AUD_SW_DIM)
+            snap.mono = readSwitch(AUD_SW_MONO)
+            snap.polarity = readSwitch(AUD_SW_POLARITY)
+            snap.talkback = readSwitch(AUD_SW_TALKBACK)
+            DispatchQueue.main.async { self.onSnapshot?(snap) }
+            return
+        }
         snap.phonesMute = readPhonesMute()
         snap.dim = readSwitch(AUD_SW_DIM)
         snap.mono = readSwitch(AUD_SW_MONO)

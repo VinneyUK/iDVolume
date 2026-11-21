@@ -34,6 +34,13 @@ int aud_model_fully_supported(int pid);
 void aud_set_untested_unlock(int on);
 int aud_commands_blocked(void);   // 1 if the connected model is refused
 
+// Original iD14 (USB 2708:0002), opt-in. Built only from a capture of Audient's own iD app:
+// every request goes to interface 0 (never the DFU interface 3), and only the exact request
+// shapes Audient's app was seen to send successfully are allowed. Anything else is refused.
+void aud_set_mk1_enabled(int on);
+int aud_mk1_active(void);          // 1 if an original iD14 is connected and support is on
+int aud_read_headphone_raw(int16_t *out);   // original iD14 only (the MKII never reports it)
+
 // --- Interface setup assistant (safe: descriptors only, plus user-confirmed commands) ---
 typedef struct { uint8_t id; uint8_t subtype; uint8_t channels; } AudEntity;
 // Audio units listed in the USB configuration descriptor (a standard request, safe on any

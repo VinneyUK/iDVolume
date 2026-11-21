@@ -49,6 +49,13 @@ struct PanelView: View {
                 .font(.system(size: 14, weight: .semibold)).multilineTextAlignment(.center)
             Text("iDVolume currently works with the iD14 MKII only. To keep your interface safe, it sends it no commands at all.")
                 .font(.system(size: 12)).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+            if state.isOriginalID14 {
+                Button("Turn On iD14 Support (Beta)…") {
+                    state.settingsTab = .setup
+                    state.openSettings?()
+                }
+                .controlSize(.small)
+            }
             HStack(spacing: 6) {
                 Button("Send Interface Report…") { state.sendUnsupportedReport() }
                 Button("Copy") { state.copyInterfaceReport() }.help("Copy the report to paste into a message")

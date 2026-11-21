@@ -15,6 +15,7 @@ static IOUSBInterfaceInterface190 **g_intf = NULL;     // opened lazily, fallbac
 static int g_iface = 0;
 static int g_iface_override = -1;
 static int g_mode = -1;
+static int g_mk1_enabled = 0;
 static int g_untested_unlock = 0;
 static int g_hp_override = 0;
 static int g_switch_iface = -2;
@@ -32,9 +33,36 @@ static const struct { uint16_t pid; const char *name; } kModels[] = {
 int aud_model_fully_supported(int pid) { return pid == 0x0008; }   // iD14 MKII
 void aud_set_mode(int mode) { g_mode = mode; }
 void aud_set_untested_unlock(int on) { g_untested_unlock = on ? 1 : 0; }
-int aud_commands_blocked(void) { return g_pid >= 0 && !aud_model_fully_supported(g_pid) && !g_untested_unlock; }
+void aud_set_mk1_enabled(int on) { g_mk1_enabled = on ? 1 : 0; }
+int aud_mk1_active(void) { return g_pid == 0x0002 && g_mk1_enabled; }
+int aud_commands_blocked(void) {
+    return g_pid >= 0 && !aud_model_fully_supported(g_pid) && !aud_mk1_active() && !g_untested_unlock;
+}
+
+// Original iD14: the request shapes Audient's iD app sent during capture, every one of which
+// completed successfully (speaker level 1,196 SETs; each GET below ~85,000 times, no failures).
+// direction: 0 = SET_CUR, 1 = GET_CUR. Entity 0x36 = monitor section, 0x0a = headphones.
+static int mk1_allowed(int direction, uint8_t request, uint16_t wValue, uint8_t entity, uint16_t len) {
+    static const struct { uint8_t dir, entity; uint16_t wValue, len; } allow[] = {
+        {0, 0x36, 0x1200, 2}, {1, 0x36, 0x1200, 2},   // speaker level
+        {0, 0x36, 0x0400, 1}, {1, 0x36, 0x0400, 1},   // speaker mute
+        {0, 0x36, 0x0500, 1}, {1, 0x36, 0x0500, 1},   // dim
+        {0, 0x36, 0x0000, 1}, {1, 0x36, 0x0000, 1},   // mono
+        {0, 0x36, 0x0300, 1}, {1, 0x36, 0x0300, 1},   // polarity
+        {0, 0x36, 0x0700, 1}, {1, 0x36, 0x0700, 1},   // talkback
+        {0, 0x0a, 0x0203, 2}, {0, 0x0a, 0x0204, 2},   // headphone level L/R
+        {1, 0x0a, 0x0203, 2},                         // headphone level read (channel 3)
+    };
+    if (request != 0x01) return 0;
+    for (size_t i = 0; i < sizeof(allow) / sizeof(allow[0]); i++)
+        if (allow[i].dir == direction && allow[i].entity == entity && allow[i].wValue == wValue && allow[i].len == len)
+            return 1;
+    return 0;
+}
+
 int aud_safe_mode(void) {
     if (g_pid < 0) return 0;
+    if (aud_mk1_active()) return 0;   // reads allowed, but only the whitelisted ones
     if (g_mode == 1) return 0;
     if (g_mode == 0) return 1;
     return !aud_model_fully_supported(g_pid);
@@ -42,6 +70,7 @@ int aud_safe_mode(void) {
 
 // Headphone channels: 5/6 on the iD14 MKII (from a capture of Audient's app); MixiD's 3/4 elsewhere.
 static int hp_first_channel(void) {
+    if (g_pid == 0x0002) return 3;   // original iD14: channels 3/4 (capture); ignore old wizard profiles
     if (g_hp_override > 0) return g_hp_override;
     return g_pid == 0x0008 ? 5 : 3;
 }
@@ -201,6 +230,11 @@ static int open_ctl_interface(void) {
 static IOReturn send_request_on(int iface, uint16_t wValue, uint8_t entity, uint8_t *data, uint16_t len) {
     if (!g_dev && aud_connect() < 0) return kIOReturnNoDevice;
     if (aud_commands_blocked()) return kIOReturnNotPermitted;   // never send to unverified models
+    int mk1 = g_pid == 0x0002;
+    if (mk1) {
+        if (!mk1_allowed(0, 0x01, wValue, entity, len)) return kIOReturnNotPermitted;
+        iface = 0;   // the Audio Control interface, as Audient's app does; never DFU interface 3
+    }
 
     IOUSBDevRequestTO req;
     memset(&req, 0, sizeof(req));
@@ -220,7 +254,7 @@ static IOReturn send_request_on(int iface, uint16_t wValue, uint8_t entity, uint
         return kr;
     }
     // Path 2: open the spare interface and use its control pipe.
-    if (open_ctl_interface()) {
+    if (!mk1 && open_ctl_interface()) {   // never on the original iD14: that's its DFU interface
         req.wLenDone = 0;
         IOReturn kr2 = (*g_intf)->ControlRequestTO(g_intf, 0, &req);
         if (kr2 == kIOReturnSuccess) {
@@ -290,7 +324,8 @@ int aud_send_monitor_selector(int selector, int on) {
 int aud_set_monitor_switch(int which, int on) {
     if (which < 0 || which >= N_SWITCHES) return (int)kIOReturnBadArgument;
     uint8_t b = on ? 1 : 0;
-    return (int)send_bytes_retry_on(panel_iface(), kSwitchSelectors[which], 0x36, &b, 1);
+    uint16_t sel = g_pid == 0x0002 ? kSwitchDefaults[which] : kSwitchSelectors[which];   // ignore old remaps
+    return (int)send_bytes_retry_on(panel_iface(), sel, 0x36, &b, 1);
 }
 
 static int aud_read_on(int iface, uint8_t request, uint16_t wValue, uint8_t entity, uint8_t *buf, uint16_t len,
@@ -305,6 +340,10 @@ static int aud_read_on(int iface, uint8_t request, uint16_t wValue, uint8_t enti
                        uint32_t timeout_ms) {
     if (!g_dev && aud_connect() < 0) return (int)kIOReturnNoDevice;
     if (aud_commands_blocked()) return (int)kIOReturnNotPermitted;   // never read from unverified models
+    if (g_pid == 0x0002) {
+        if (!mk1_allowed(1, request, wValue, entity, len)) return (int)kIOReturnNotPermitted;
+        iface = 0;
+    }
     IOUSBDevRequestTO req;
     memset(&req, 0, sizeof(req));
     req.bmRequestType = USBmakebmRequestType(kUSBIn, kUSBClass, kUSBInterface);
@@ -341,10 +380,19 @@ int aud_read_speaker_raw(int16_t *out) {
     return 0;
 }
 
+int aud_read_headphone_raw(int16_t *out) {
+    uint8_t b[2] = {0};
+    int n = aud_read_on(-1, 0x01, (uint16_t)(0x0200 | hp_first_channel()), 0x0a, b, 2, 200);
+    if (n != 2) return n < 0 ? n : (int)kIOReturnUnderrun;
+    *out = (int16_t)(b[0] | (b[1] << 8));
+    return 0;
+}
+
 int aud_read_monitor_switch(int which, int *out) {
     if (which < 0 || which >= N_SWITCHES) return (int)kIOReturnBadArgument;
     uint8_t b = 0;
-    int n = aud_read_on(panel_iface(), 0x01, kSwitchSelectors[which], 0x36, &b, 1, 200);
+    uint16_t sel = g_pid == 0x0002 ? kSwitchDefaults[which] : kSwitchSelectors[which];
+    int n = aud_read_on(panel_iface(), 0x01, sel, 0x36, &b, 1, 200);
     if (n != 1) return n < 0 ? n : (int)kIOReturnUnderrun;
     *out = b;
     return 0;
