@@ -716,8 +716,8 @@ struct MK1SupportCard: View {
             }
             Toggle("Enable original iD14 support", isOn: $state.mk1SupportEnabled).toggleStyle(.switch)
             VStack(alignment: .leading, spacing: 3) {
-                Text("Works: speaker and headphone level, Mute, Dim, Mono, Polarity, Talkback, volume keys, visualiser. Following the hardware knob should work; please let us know if it does.")
-                Text("Not available on this model yet: Alt speakers, headphone mute, iD button setting, level meters.")
+                Text("Works: speaker and headphone level, Mute, Dim, Mono, Polarity, Talkback, level meters, volume keys, visualiser.")
+                Text("Not available on this model yet: Alt speakers, headphone mute, iD button setting.")
                     .foregroundStyle(Skin.silk)
             }
             .font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
@@ -745,7 +745,7 @@ struct WelcomeView: View {
                         Text("Support for this model is in beta").font(.system(size: 12)).foregroundStyle(Skin.silkDim)
                     }
                 }
-                Text("It's built from recordings of Audient's own iD app controlling an original iD14, and iDVolume only sends the exact commands that app was seen sending. Speaker and headphone level, Mute, Dim, Mono, Polarity and Talkback work; Alt, headphone mute, the iD button setting and meters aren't available yet.")
+                Text("It's built from recordings of Audient's own iD app controlling an original iD14, and iDVolume only sends the exact commands that app was seen sending. Speaker and headphone level, Mute, Dim, Mono, Polarity and Talkback work; Alt, headphone mute and the iD button setting aren't available yet.")
                     .font(.system(size: 13)).fixedSize(horizontal: false, vertical: true)
                 HStack {
                     Button("Not Now") { state.welcomeChoice(.ok) }

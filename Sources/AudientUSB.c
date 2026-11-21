@@ -43,19 +43,21 @@ int aud_commands_blocked(void) {
 // completed successfully (speaker level 1,196 SETs; each GET below ~85,000 times, no failures).
 // direction: 0 = SET_CUR, 1 = GET_CUR. Entity 0x36 = monitor section, 0x0a = headphones.
 static int mk1_allowed(int direction, uint8_t request, uint16_t wValue, uint8_t entity, uint16_t len) {
-    static const struct { uint8_t dir, entity; uint16_t wValue, len; } allow[] = {
-        {0, 0x36, 0x1200, 2}, {1, 0x36, 0x1200, 2},   // speaker level
-        {0, 0x36, 0x0400, 1}, {1, 0x36, 0x0400, 1},   // speaker mute
-        {0, 0x36, 0x0500, 1}, {1, 0x36, 0x0500, 1},   // dim
-        {0, 0x36, 0x0000, 1}, {1, 0x36, 0x0000, 1},   // mono
-        {0, 0x36, 0x0300, 1}, {1, 0x36, 0x0300, 1},   // polarity
-        {0, 0x36, 0x0700, 1}, {1, 0x36, 0x0700, 1},   // talkback
-        {0, 0x0a, 0x0203, 2}, {0, 0x0a, 0x0204, 2},   // headphone level L/R
-        {1, 0x0a, 0x0203, 2},                         // headphone level read (channel 3)
+    static const struct { uint8_t dir, request, entity; uint16_t wValue, len; } allow[] = {
+        {0, 0x01, 0x36, 0x1200, 2}, {1, 0x01, 0x36, 0x1200, 2},   // speaker level
+        {0, 0x01, 0x36, 0x0400, 1}, {1, 0x01, 0x36, 0x0400, 1},   // speaker mute
+        {0, 0x01, 0x36, 0x0500, 1}, {1, 0x01, 0x36, 0x0500, 1},   // dim
+        {0, 0x01, 0x36, 0x0000, 1}, {1, 0x01, 0x36, 0x0000, 1},   // mono
+        {0, 0x01, 0x36, 0x0300, 1}, {1, 0x01, 0x36, 0x0300, 1},   // polarity
+        {0, 0x01, 0x36, 0x0700, 1}, {1, 0x01, 0x36, 0x0700, 1},   // talkback
+        {0, 0x01, 0x0a, 0x0203, 2}, {0, 0x01, 0x0a, 0x0204, 2},   // headphone level L/R
+        {1, 0x01, 0x0a, 0x0203, 2},                               // headphone level read (channel 3)
+        {1, 0x03, 0x3c, 0x0001, 8},   // output meter block (GET MEM): 4 x LE16, speakers first.
+                                      // 17,097 reads in the captures, no failures.
     };
-    if (request != 0x01) return 0;
     for (size_t i = 0; i < sizeof(allow) / sizeof(allow[0]); i++)
-        if (allow[i].dir == direction && allow[i].entity == entity && allow[i].wValue == wValue && allow[i].len == len)
+        if (allow[i].dir == direction && allow[i].request == request && allow[i].entity == entity &&
+            allow[i].wValue == wValue && allow[i].len == len)
             return 1;
     return 0;
 }
@@ -437,6 +439,13 @@ int aud_read_meters(uint16_t *inputs16, uint16_t *outputs6) {
 }
 
 int aud_read_output_meters(uint16_t *outputs6) {
+    if (g_pid == 0x0002) {   // original iD14: 8-byte block, four outputs (speaker L/R first)
+        uint8_t m[8];
+        int n = aud_read(0x03, 0x0001, 0x3c, m, 8, 200);
+        if (n != 8) return n < 0 ? n : (int)kIOReturnUnderrun;
+        for (int i = 0; i < 6; i++) outputs6[i] = i < 4 ? (uint16_t)(m[2 * i] | (m[2 * i + 1] << 8)) : 0;
+        return 0;
+    }
     uint8_t b[12];
     int n = aud_read(0x03, 0x0001, 0x3c, b, 12, 200);
     if (n != 12) return n < 0 ? n : (int)kIOReturnUnderrun;

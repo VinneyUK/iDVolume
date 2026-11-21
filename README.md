@@ -53,7 +53,7 @@ See the [changelog](CHANGELOG.md) for what's new in each version.
 |---|---|
 | macOS | 13 Ventura or later |
 | Tested | Audient **iD14 MKII** |
-| iD14 (original) | **Beta** — turn on in Settings → Setup. Speaker and headphone level, Mute, Dim, Mono, Polarity, Talkback. Built from a capture of Audient's own app |
+| iD14 (original) | **Beta** — turn on in Settings → Setup. Speaker and headphone level, knob sync, Mute, Dim, Mono, Polarity, Talkback, level meters. Built from a capture of Audient's own app and confirmed by an owner |
 | Other iD models | **Not supported yet.** iDVolume sends them no commands at all. Use **Settings → Setup → Send Interface Report**, and see [docs/CAPTURE.md](docs/CAPTURE.md) to help add support |
 
 ## Install

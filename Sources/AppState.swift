@@ -768,7 +768,8 @@ final class USBWriter: @unchecked Sendable {
     private var meterRepeats = 0
 
     private func readMeters(force: Bool = false) {
-        guard !safeMode, aud_model_fully_supported(aud_current_pid()) != 0, aud_current_pid() >= 0, pending.isEmpty, !scheduled else { return }
+        guard !safeMode, aud_model_fully_supported(aud_current_pid()) != 0 || aud_mk1_active() != 0,
+              aud_current_pid() >= 0, pending.isEmpty, !scheduled else { return }
         var outs = [UInt16](repeating: 0, count: 6)
         guard aud_read_output_meters(&outs) == 0 else { return }
         // Identical readings (typically silence) are still passed on now and then so the

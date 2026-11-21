@@ -2,6 +2,11 @@
 
 All notable changes to iDVolume. Versions are listed newest first.
 
+## 1.9.2
+
+- **Level meters on the original iD14.** The menu bar meter and the panel meters (ring, Rack unit, Meter bridge) now work on the original iD14, using the same output-meter read Audient's own app makes (seen over 17,000 times in the captures, without a single failure).
+- Original iD14 support confirmed working by an owner: speaker and headphone level, the hardware knob, Mute, Dim, Mono, Polarity and Talkback.
+
 ## 1.9.1
 
 - **Original iD14: one click to turn support on.** When an original iD14 is connected, the panel and the first-connection window now say "Original iD14 detected" and offer **Turn On Original iD14 Support** directly, instead of a "not supported" message that sent you to Settings.
