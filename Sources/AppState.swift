@@ -342,7 +342,7 @@ final class AppState: ObservableObject {
 
         keyTap.handler = { [weak self] key, down, flags in
             guard let self else { return false }
-            let out = AudioOutput.current()
+            let out = AudioOutput.cached ?? AudioOutput.current()
             let take = (out.isAudient || !self.keysOnlyWhenAudient) && !self.unsupportedModel   // leave keys to macOS
             if down {
                 if take { self.handleKey(key, flags: flags) }
@@ -355,6 +355,14 @@ final class AppState: ObservableObject {
             forName: NSNotification.Name("com.apple.accessibility.api"), object: nil, queue: .main
         ) { [weak self] _ in
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { self?.restartKeyTap() }
+        }
+
+        // Output switched (e.g. to Bluetooth and back): start fresh — rebuild the key capture and
+        // the visualiser's capture, which was tied to the previous output.
+        AudioOutput.watch { [weak self] _ in
+            guard let self else { return }
+            self.restartKeyTap()
+            if self.spectrum.status == .running { self.spectrum.stop(); self.updateSpectrum() }
         }
 
         refresh()

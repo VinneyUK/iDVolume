@@ -2,6 +2,10 @@
 
 All notable changes to iDVolume. Versions are listed newest first.
 
+## 1.8.6
+
+- **Fixed: volume keys stopped controlling the iD after switching outputs.** After switching to another output (built-in speakers, Bluetooth) and back, the keys could end up controlling a monitor's speakers until iDVolume was restarted. iDVolume now follows output changes as they happen and resets its key capture and visualiser on every switch.
+
 ## 1.8.5
 
 - **Interface Report** for models iDVolume doesn't support yet: a full description of the interface from its own USB descriptors — its USB interfaces and their types, its audio units and controls, and the raw descriptor data. Nothing is sent to the interface. **Send Interface Report** opens a pre-filled GitHub issue; **Copy Report** copies it to paste into a message instead.
